@@ -1,0 +1,27 @@
+Currently using and testing this library in a path tracer and a deferred renderer
+
+Constraints and Requirements: 
+--> The library is primarily built for graphics applications, not solely computations
+--> The physical device needs to support at least the graphics
+	queue and swapchain creation. This constraint will be lifted soon.
+--> Ignoring the subpasses in the RenderTargetBuilder::CreateContext(...)
+
+Ideas and Suggestions:
+--> The  VK_NAMESPACE::RenderTargetContext::CreateFramebuffer(...) generates the framebuffer
+	images and image views internally, thus user has no way to set the image layout and their memory properties
+--> ResourceAllocator could be further expanded to envelop CommandPoolManager and CommandBufferAllocator
+	(from Process/Commands.h and Memory/ResourceAllocator.h)
+--> Consider merging the Pipeline/ and ShaderCompiler/ as well
+--> We could store the vkLib::PShader inside the vkLib::DescriptorWriter
+	for more flexbility and better organization
+--> RenderPassBuilder could be merged into Context
+--> Wondering if PipelineBuilder should return a ref or memory on stack
+
+Implementation:
+--> Maps in the vkLib::MemoryUtilsHelper (Core/MemoryUtils.cpp) might be incomplete
+--> Swapchain creation conflicts with RIVA TUNER application. This app hooks the application 
+	and imposes the vk::ImageUsageFlagBits::eStorageBuffer layout at swapchain framebuffer 
+	creation for being able to record the screen.
+--> VK_NAMESPACE::ImageView class is incomplete
+--> Swapchain is more complicated than necessary, we need to remove the excess
+	
