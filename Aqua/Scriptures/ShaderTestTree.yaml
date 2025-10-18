@@ -1,0 +1,21 @@
+MathNode:
+    Operation: "+"
+    -Inputs:
+        -FirstVal:
+            -Literal: 
+                Type: "float"
+                Value: 2.0f
+        -SecondVal:
+            -MathNode:
+                Operation: "*"
+                -Inputs:
+                    -FirstVal:
+                        -Literal: 
+                            Type: "float"
+                            Value: 3.0f
+                    -SecondVal:
+                        -Literal:
+                            Type: "float"
+                            Value: 4.0f
+            
+    

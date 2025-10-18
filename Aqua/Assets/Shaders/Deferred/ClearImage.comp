@@ -1,0 +1,38 @@
+#version 440 core
+
+// --- Workgroup size (tweak to taste) ---
+layout(local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y) in;
+
+// --- Descriptors ---
+// Bind only the image(s) you actually want to clear for the target format.
+// For COLOR targets, bind a compatible color storage image (e.g., rgba8/rgba16f/rgba32f)
+//   at set=0,binding=0 and leave others unbound or ignored.
+// For DEPTH targets, bind a single-channel float storage image (e.g., r32f) at binding=1.
+// For STENCIL targets, bind an unsigned single-channel storage image (e.g., r8ui) at binding=2.
+
+// COLOR (e.g., rgba8/rgba16f/rgba32f): declare with a format matching the image view.
+// DEPTH as single-channel float view (e.g., r32f).
+layout(set = 0, binding = 0, IMAGE_FORMAT) writeonly uniform image2D uImage;
+
+// --- Push constants ---
+// aspectMask bits: 1 = COLOR, 2 = DEPTH, 4 = STENCIL
+layout(push_constant) uniform ShaderConstants
+{
+    vec4  pClearValue;
+};
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Guard against over-dispatch
+    // (If you dispatch exact-sized grids you can drop this.)
+    // We use whichever bound image�s size is relevant. Prefer color, then depth, then stencil.
+    ivec2 size = imageSize(uImage);
+
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    // note: in case of r32f, or s8ui clear values (depth or stencil)
+    // make sure the pClearValue follows the corresponding formats
+    imageStore(uImage, coord, pClearValue);
+}

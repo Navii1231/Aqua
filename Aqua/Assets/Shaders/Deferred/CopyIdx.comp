@@ -1,0 +1,39 @@
+#version 440
+
+layout (local_size_x = 32) in;
+
+layout(push_constant) uniform ShaderConstants
+{
+	uint pVertexOffset;
+	uint pIndexOffset;
+	uint pSize;
+};
+
+layout (std430, set = 0, binding = 0) readonly buffer SrcIndices
+{
+	uint sSrcIndices[];
+};
+
+layout (std430, set = 0, binding = 1) buffer DstIndices
+{
+	uint sDstIndices[];
+};
+
+uint indices[2] = uint[](
+	
+	0, 1
+
+);
+
+void main()
+{
+	uint Position = gl_GlobalInvocationID.x;
+
+	if(Position >= pSize)
+		return;
+
+	sDstIndices[Position + pIndexOffset] = sSrcIndices[Position] + pVertexOffset;
+	//sDstIndices[Position + pIndexOffset] = indices[Position] + pVertexOffset;
+	//sDstIndices[0] = sSrcIndices[0];
+	//sDstIndices[1] = sSrcIndices[1];
+}

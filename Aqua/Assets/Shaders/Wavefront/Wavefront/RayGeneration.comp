@@ -1,0 +1,119 @@
+#version 440
+
+/*
+	EMPTY_MATERIAL_ID = -1, SKYBOX_MATERIAL_ID = -2, LIGHT_MATERIAL_ID = -3,
+	RR_CUTOFF_CONST = -4 (indicates that the path was terminated by russian roulette)
+
+	* Ray.Active constant represents the ray status (active or inactive)
+	*  0 --> path is active
+	* -1 --> ray hit an empty material; therefore no further sampling was done
+	* -2 --> escaped into the sky
+	* -3 --> hit a light source
+	* -4 --> path was terminated by russian roulette
+*/
+
+#include "DescSet0.glsl"
+#include "DescSet1.glsl"
+#include "Random.glsl"
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+uint sRNG_Seed;
+
+layout(push_constant) uniform Camera
+{
+	mat4 pViewMatrix;
+	uint pRNG_Seed;
+	uint pActiveBuffer;
+};
+
+struct PhysicalCameraInfo
+{
+	// Physical properties (in mm)...
+	vec2 SensorSize;
+	float FocalLength;
+	float ApertureSize;
+	float FocalDistance; // in meters...
+	float FOV; // in degrees...
+};
+
+Ray CreateCameraRay(in vec2 uv, in PhysicalCameraInfo cameraInfo)
+{
+	// Get the ray in camera's local coordinate space
+	Ray ray;
+
+	ray.Origin = vec3(0.0);
+	ray.Direction = normalize(vec3(uv * cameraInfo.SensorSize, cameraInfo.FocalLength));
+
+	if (uCamera.ApertureSize > 0.0)
+	{
+		vec2 LensSample = SampleOnUnitDisk(sRNG_Seed);
+
+		// Perturb the origin a little bit
+		vec3 NewOrigin = ray.Origin + cameraInfo.ApertureSize * vec3(LensSample, 0.0) * 1E-3;
+		
+		float Distance = cameraInfo.FocalDistance / ray.Direction.z;
+		vec3 FocalPoint = GetPoint(ray, Distance);
+
+		// Get the new direction towards the focal point from the pertubed origin
+		vec3 NewDirection = normalize(FocalPoint - NewOrigin);
+
+		// Set the new origin and the direction to form a new ray
+		ray.Origin = NewOrigin;
+		ray.Direction = NewDirection;
+	}
+
+	vec4 CameraPosition = inverse(pViewMatrix) * vec4(0.0, 0.0, 0.0, 1.0);
+
+	// Transform the ray into the world coordinate space
+	ray.Origin = vec3(CameraPosition + vec4(ray.Origin, 1.0));
+	ray.Direction = transpose(mat3(pViewMatrix)) * ray.Direction;
+
+	return ray;
+}
+
+void main()
+{
+	uint GlobalIdx = gl_GlobalInvocationID.x;
+
+	ivec2 TileSize = uSceneInfo.MaxBound - uSceneInfo.MinBound;
+	uint RayCount = TileSize.x * TileSize.y;
+
+	uvec2 Position = uvec2(GlobalIdx % TileSize.x, GlobalIdx / TileSize.x);
+	ivec2 PositionOnImage = uSceneInfo.MinBound + ivec2(Position);
+
+	sRNG_Seed = Position.x * pRNG_Seed + Position.y * 
+		(Position.x + pRNG_Seed) + pRNG_Seed;
+
+	if(sRNG_Seed == 0)
+		sRNG_Seed = 87129283;
+
+	// If the position is out of the target image bounds, abort
+	if (PositionOnImage.x >= uSceneInfo.ImageResolution.x ||
+		PositionOnImage.y >= uSceneInfo.ImageResolution.y)
+		return;
+
+	PhysicalCameraInfo cameraInfo;
+	cameraInfo.SensorSize = uCamera.SensorSize;
+	cameraInfo.FocalLength = uCamera.FocalLength;
+	cameraInfo.ApertureSize = uCamera.ApertureSize;
+	cameraInfo.FocalDistance = uCamera.FocalDistance;
+	cameraInfo.FOV = uCamera.FOV;
+
+	// Converting the pixel position into normalized uv coordinates 
+	// from [0, Width] --> [-1, 1] and from [0, Height] --> [-1, 1]
+	vec2 uv = vec2(PositionOnImage) / vec2(uSceneInfo.ImageResolution) * 2.0 - 1.0;
+	uv.y = -uv.y;
+
+	uint BufferIndex = RayCount * pActiveBuffer + GlobalIdx;
+
+	Ray ray = CreateCameraRay(uv, cameraInfo);
+
+	// Init the ray buffer for the next stage
+	sRays[BufferIndex] = ray;
+	sRays[BufferIndex].Active = 0; // zero represents the active path
+
+	sRayInfos[BufferIndex].ImageCoordinate = Position;
+	sRayInfos[BufferIndex].Luminance = vec4(1.0);
+	sRayInfos[BufferIndex].Throughput = vec4(1.0);
+}

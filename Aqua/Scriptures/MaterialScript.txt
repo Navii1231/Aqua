@@ -1,0 +1,87 @@
+
+function Add(int a, int b)->int begin
+// FunctionNode, NameNode, ParsNode, ReturnTypeNode, CmdStmts
+
+return a + b
+// ReturnStmt, ScopedVar, MathsOperation, ScopedVar
+
+end
+// Reduce the function node
+
+function PrintNumbers(int x) begin
+// FunctionNode, NameNode, ParsNode, ReturnType, CmdStmts
+
+print(x)
+// CallFuntion, Par1, ScopedVar
+
+end
+// Reduce the function node
+
+function Run()->int begin
+// FunctionNode, NameNode, ParsNode, ReturnType, CmdStmts
+
+int x = Add(1, 3)
+// VarDecl, FunctionCall, 
+print(x)
+
+return x;
+
+end
+
+/* 
+
+AST of the code above
+
+-TranslationUnit
+	-Function: 
+		Name: "Run"
+		-Par1:
+			Type: int
+			Name: "a"
+		-Par2:
+			Type: int
+			Name: "b"
+		ReturnType: int
+		-CmdStmts:
+			-ReturnStmt:
+				-MathStmt:
+					Operation: +
+					-Par1:
+						ScopedVar: a
+					-Par2:
+						ScopedVar: b
+
+	-Function: 
+		Name: "PrintNumbers"
+		-Par1:
+			Type: int
+			Name: "x"
+		ReturnType: int
+		-CmdStmts:
+			-CallStmt:
+				Name: "print"
+				-Par1:
+					ScopedVar: x
+	
+	-EntryPoint:
+		-CmdStmts:
+			-Declaration:
+				Type: int
+				Name: "x"
+				-Assignment:
+					-CallStmt:
+						Name: "Add"
+						-Par1:
+							-Literal:
+								String: 1
+						-Par2:
+							-Literal:
+								String: 3
+			-CallStmt:
+				Name: "print"
+				-Par1:
+					ScopedVar: x
+			-ReturnStmt:
+				ScopedVar: x
+
+*/

@@ -1,0 +1,95 @@
+
+Currently: testing the deferred and shading pipelines
+
+Performance heuristics:
+--> 200 fps with 250,000 vertices using pbr material without deferred pipelines, 
+	textures sampling, shadows, and post processing etc. 
+
+Ideas and Suggestions: 
+--> #Current: In the renderer implementation, instead of hiding the renderer features in the front and back ends and
+	having them pick which feature will be approapriate for which task, we could write a (base) Feature class
+	where the renderer can "ask" the feature whether or not it can do a particular task, and therefore dispatching
+	a taks in the renderer will be reduced to finding the right inherited feature class
+
+Implementation:
+--> When shading smooth materials, the contours appear wherever the light intensity changes,
+	suggesting a lack of precision in the bsdf output
+--> In our implementation, we probably won't be using any geometry shaders 
+	in the deferred pipeline or anywhere at all, although we'll support them anyway
+--> We can think of the implementation as incrementally attaining new abstraction levels. The further we move up,
+	the more things we integrate from various parts of the renderer. Material system is quite up in the abstraction,
+	in fact, one might say, it's central to all the rendering operations. This is because the materials consist*
+	of user's intentions of how objects should be shaded, so it will also dictate how the process of shading
+	would work internally
+--> It seems like the automatic shader generation can't be attained at the pipeline creation level, so we 
+	shall try it at the renderer level instead. We could ask ourselves, what things are possible 
+	to generate automatically according to whatever the information we can infer locally during the pipeline creation
+	- For example:
+		- For Resources: Model matrics (no), camera stuff(yes), displacement maps in tessellation (no)
+		- For Varyings (most of the time as long as no winding logic among fields is involved)
+		- For main function: not at all
+		- For Tessellation parameters are set by the user and mediated through resources (uniforms),
+		so the answer is no for them as well, although we might be able to automate the generation of
+		the tessellation control shader.
+		- fragment outputs: often no, since two or more inputs are often combined and stored in a 
+		single map to save the memory bandwidth
+
+--> Material System generates the shading pipeline through which we get rest of the information to create and setup defer pipelines
+	So the auto generation might be attained at the material system
+--> Furthermore, material system also bridges different parts of the renderer such as path tracer, ray tracer, forward and
+	deferred rendering units. This section of the renderer is the key element for setting the shading logic, allocating necessary 
+	resources, and combining various parts of the renderer into a single coherent unit
+
+
+--> For now, the defer pipeline has two functions
+	1. to store the necessary information of geometry into maps for later use by 
+	the shading pipeline (varyings will probably stay constant)
+	2. to apply other functions like displacements maps (tessellation; independent of the material), and
+	geometry functions (grass or normals).
+
+--> Incorporating different kinds of shading models (material system class)
+--> Generating a fragment shader and a deferred pipeline 
+	corresponding to a shading model (shader generator class)
+
+--> Writing generic material system
+	
+	" The materials often consist of uniquely named parameters
+	* tuned out and set by the artists. Thus, we need a way to 
+	* access those random parameters from the material
+	* by their names. Furthermore, a material also contains 
+	* a shader often found in terms of graph or a tree. The shader determines 
+	* how those parameters are used and what resources 
+	* are required in shading the model. In other words, 
+	* we want a material system which can translate this graph into a 
+	* parameterized shader that we can run on the GPU" -- From Aqua\Include\Geometry3D\Geometry3D.h
+
+--> The MaterialSystem class can read a node graph, a material file, or a hand-written shader
+	and it can generate MaterialInstance class that will hold the shading logic (the rasterization 
+	and ray tracing pipelines) as well as the node graph and the shader parameters
+	
+--> Writing compute pipelines to run the shading stage of deferred rendering which will allow us 
+	to run arbitrary materials on the GPU
+
+--> Writing a generic shader generator and that can produce both fragment and compute
+	shaders corresponding the shading model and material graph. It will also be able
+	determine information regarding resources used in the material graph, which will 
+	help us generating them as well as create the form the deferred pipeline
+
+--> Implementing GPU BVH builder
+
+
+--> Optimize the ray sorter
+
+
+--> Expand the expr parser, where you have to include
+	-- declaration nodes; done
+	-- assignment nodes (assignment: done, but comparison is still remaining)
+	-- maths and boolean expression nodes; done
+
+ExprParser, right now, does not account for all kinds for exprs.
+You will expand the ExprParser, and the first part of the 
+parser will be finished
+
+--> Write a semantic analyser and the frontend is done!
+
+--> Needs a new sampling strategy
