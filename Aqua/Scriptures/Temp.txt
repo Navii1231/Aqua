@@ -1,0 +1,18 @@
+
+ import CookTorranceBSDF
+
+ vec3 Evaluate(BSDFInput bsdfInput)
+ {
+  CookTorranceBSDFInput cookTorrInput;
+  cookTorrInput.ViewDir = bsdfInput.ViewDir;
+  cookTorrInput.LightDir = bsdfInput.LightDir;
+  cookTorrInput.Normal = bsdfInput.Normal;
+
+  cookTorrInput.BaseColor = __sPCI_CustomParameters[0].__pci_base_color;
+  cookTorrInput.Metallic = __sPCI_CustomParameters[0].__pci_metallic;
+  cookTorrInput.Roughness = __sPCI_CustomParameters[0].__pci_roughness;
+  cookTorrInput.RefractiveIndex = __sPCI_CustomParameters[0].__pci_refract_idx;
+  cookTorrInput.TransmissionWeight = 0.0;
+
+  return CookTorranceBRDF(cookTorrInput);
+ }

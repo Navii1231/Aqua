@@ -66,13 +66,13 @@ std::expected<AQUA_NAMESPACE::MAT_NAMESPACE::Material, vkLib::CompileError>
 			return std::unexpected(error);
 	}
 
-	EXEC_NAMESPACE::Operation execOp{};
+	EXEC_NAMESPACE::GenericNode execOp{};
 
 	vkLib::ComputePipeline fakePipeline;
 	fakePipeline.SetShader(shader);
 
 	execOp.Cmp = MakeRef<vkLib::ComputePipeline>(mPipelineBuilder.BuildComputePipeline<vkLib::ComputePipeline>(fakePipeline));
-	execOp.States = EXEC_NAMESPACE::OpType::eCompute;
+	execOp.Type = EXEC_NAMESPACE::OpType::eCompute;
 
 	return execOp;
 }
@@ -108,7 +108,7 @@ std::expected<AQUA_NAMESPACE::MAT_NAMESPACE::Material, vkLib::CompileError>
 			return std::unexpected(error);
 	}
 
-	EXEC_NAMESPACE::Operation execOp{};
+	EXEC_NAMESPACE::GenericNode execOp{};
 
 	vkLib::GraphicsPipeline fakePipeline;
 	fakePipeline.SetShader(shader);
@@ -117,7 +117,7 @@ std::expected<AQUA_NAMESPACE::MAT_NAMESPACE::Material, vkLib::CompileError>
 	vkLib::GraphicsPipeline pipeline = mPipelineBuilder.BuildGraphicsPipeline<vkLib::GraphicsPipeline>(fakePipeline);
 
 	execOp.GFX = MakeRef<vkLib::GraphicsPipeline>(pipeline);
-	execOp.States = EXEC_NAMESPACE::OpType::eGraphics;
+	execOp.Type = EXEC_NAMESPACE::OpType::eGraphics;
 
 	return execOp;
 }
@@ -151,7 +151,7 @@ std::expected<AQUA_NAMESPACE::MAT_NAMESPACE::Material, vkLib::CompileError> AQUA
 			return std::unexpected(error);
 	}
 
-	EXEC_NAMESPACE::Operation execOp{};
+	EXEC_NAMESPACE::GenericNode execOp{};
 
 	vkLib::ComputePipeline fakePipeline;
 	fakePipeline.SetShader(shader);
@@ -159,7 +159,7 @@ std::expected<AQUA_NAMESPACE::MAT_NAMESPACE::Material, vkLib::CompileError> AQUA
 	vkLib::ComputePipeline pipeline = mPipelineBuilder.BuildComputePipeline<vkLib::ComputePipeline>(fakePipeline);
 
 	execOp.Cmp = MakeRef<vkLib::ComputePipeline>(pipeline);
-	execOp.States = EXEC_NAMESPACE::OpType::eCompute;
+	execOp.Type = EXEC_NAMESPACE::OpType::eCompute;
 
 	return execOp;
 }

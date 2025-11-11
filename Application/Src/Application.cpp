@@ -44,7 +44,7 @@ void Application::Run()
 
 	mRunning.store(true);
 
-	OnStart();
+	InvokeStart();
 
 	while (mRunning.load() && !mWindow->IsWindowClosed())
 	{
@@ -52,7 +52,7 @@ void Application::Run()
 		std::this_thread::sleep_until(nextSlice);
 		nextSlice = clock.now() + timeSlice;
 
-		OnUpdate(duration);
+		InvokeUpdate(duration);
 		OnUIUpdate(duration);
 		mWindow->PollUserEvents();
 
@@ -61,6 +61,24 @@ void Application::Run()
 	}
 
 	mRunning.store(false);
+}
+
+void Application::AddLayer(Aqua::SharedRef<Layer> layer)
+{
+	if(layer->HasStartInvoked())
+		layer->OnStart();
+
+	mLayers.push_back(layer);
+}
+
+void Application::RemoveLayer(size_t whichOne /*= 0*/)
+{
+	mLayers.erase(mLayers.end() + whichOne - 1);
+}
+
+void Application::SwapLayers(size_t first, size_t second)
+{
+	std::swap(mLayers[first], mLayers[second]);
 }
 
 void Application::CreateInstance(const ApplicationCreateInfo& info)
@@ -143,6 +161,37 @@ void Application::SetupContext(const ApplicationCreateInfo& info)
 		std::cout << e.what() << std::endl;
 		std::cin.get();
 		__debugbreak();
+	}
+}
+
+bool Application::InvokeStart()
+{
+	if (!OnStart())
+		return false;
+
+	for (auto it = mLayers.rbegin(); it != mLayers.rend(); it++)
+	{
+		auto layer = *it;
+
+		if (!layer->HasStartInvoked())
+		{
+			if (!layer->OnStart())
+				return false;
+		}
+	}
+}
+
+bool Application::InvokeUpdate(std::chrono::nanoseconds timer)
+{
+	if (!OnUpdate(timer))
+		return false;
+
+	for (auto it = mLayers.rbegin(); it != mLayers.rend(); it++)
+	{
+		auto layer = *it;
+
+		if (!layer->OnUpdate(timer))
+			return false;
 	}
 }
 

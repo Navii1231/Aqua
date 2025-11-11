@@ -4,13 +4,14 @@
 
 VK_BEGIN
 
+template<typename T>
+class Buffer;
+
 class RecordableResource
 {
 public:
-	RecordableResource(const std::shared_ptr<WorkingClass>& queueManager,
-		const CommandPools& commandPool)
-		: mWorkingClass(queueManager), 
-		mCommandPools(commandPool) {}
+	RecordableResource(const std::shared_ptr<WorkingClass>& queueManager, const CommandPools& commandPool)
+		: mWorkingClass(queueManager), mCommandPools(commandPool) {}
 
 	virtual void BeginCommands(vk::CommandBuffer commandBuffer) const { DefaultBegin(commandBuffer); }
 	virtual void EndCommands() const { DefaultEnd(); }
@@ -49,6 +50,9 @@ protected:
 
 	template <typename _Rsc>
 	friend _Rsc Clone(Context, const _Rsc&);
+
+	template <typename T1, typename T2>
+	friend Buffer<T1> ReinterpretCast(Buffer<T2>);
 };
 
 template <typename Fn>
@@ -63,7 +67,7 @@ void VK_NAMESPACE::RecordableResource::InvokeProcess(uint32_t index, Fn&& fn) co
 	fn(cmdBuf);
 
 	// maybe we've to wrap this guy in too
-	executor.Dispatch(cmdBuf);
+	executor.Enqueue(cmdBuf);
 	executor.WaitIdle();
 
 	cmdBufAlloc.Free(cmdBuf);

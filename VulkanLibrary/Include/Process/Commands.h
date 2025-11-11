@@ -92,7 +92,7 @@ class CommandPools
 public:
 	CommandPools() = default;
 
-	const CommandBufferAllocator& FindCmdPool(uint32_t familyIndex) const;
+	VKLIB_API const CommandBufferAllocator& FindCmdPool(uint32_t familyIndex) const;
 	const CommandBufferAllocator& operator[](uint32_t familyIndex) const { return FindCmdPool(familyIndex); }
 
 	vk::CommandPoolCreateFlags GetCreationFlags() const { return mCreationFlags; }

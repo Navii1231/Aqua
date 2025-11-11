@@ -12,6 +12,8 @@ Ideas and Suggestions:
 	a taks in the renderer will be reduced to finding the right inherited feature class
 
 Implementation:
+--> RemoveRedundantConnections in Execution/Draft.h for removing redundant synchronization among
+	operations
 --> When shading smooth materials, the contours appear wherever the light intensity changes,
 	suggesting a lack of precision in the bsdf output
 --> In our implementation, we probably won't be using any geometry shaders 

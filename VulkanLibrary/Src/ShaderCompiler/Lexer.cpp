@@ -123,4 +123,3 @@ void Lexer::UpdateState(char Current)
 }
 
 VK_END
-

@@ -121,8 +121,8 @@ private:
 
 	void UpdateRenderableManagerie();
 
-	void PrepareShadingNetwork();
-	void LinkShaderExecutionGraphs(std::string fMatPrefix, std::string deferPrefix);
+	Aqua::Exec::Graph PrepareShadingNetwork();
+	void LinkShaderExecutionGraphs(EXEC_NAMESPACE::GenericDraft& draft, EXEC_NAMESPACE::NodeID forwardID, EXEC_NAMESPACE::NodeID deferID);
 
 
 	void PrepareFramebuffers();

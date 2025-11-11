@@ -57,8 +57,9 @@ void AQUA_NAMESPACE::ClearPipeline::operator()(vk::CommandBuffer buffer, vkLib::
 	this->Begin(buffer);
 
 	this->Activate();
+	
+	PushConst(*this, "eCompute.ShaderConstants.Index_0", clearValue);
 
-	this->SetShaderConstant("eCompute.ShaderConstants.Index_0", clearValue);
 	this->Dispatch(workCount);
 
 	this->End();

@@ -5,16 +5,18 @@
 VK_BEGIN
 
 // Struct to hold descriptor update information
-struct DescriptorLocation {
+struct DescriptorLocation 
+{
 	uint32_t SetIndex = 0;   // Descriptor set index
 	uint32_t Binding = 0;    // Binding index
 	uint32_t ArrayIndex = 0; // Array element index
 };
 
-bool operator ==(const DescriptorLocation& left, const DescriptorLocation& right);
-bool operator !=(const DescriptorLocation& left, const DescriptorLocation& right);
+VKLIB_API bool operator ==(const DescriptorLocation& left, const DescriptorLocation& right);
+VKLIB_API bool operator !=(const DescriptorLocation& left, const DescriptorLocation& right);
 
-size_t CreateHash(const DescriptorLocation& location);
+VKLIB_API size_t CreateHash(const DescriptorLocation& location);
+VKLIB_API size_t ConvertIntoMapKey(const DescriptorLocation& location);
 
 class DescriptorWriter 
 {
@@ -24,8 +26,8 @@ public:
 	DescriptorWriter(const DescriptorWriter&) = delete;
 	DescriptorWriter& operator =(const DescriptorWriter&) = delete;
 
-	DescriptorWriter(DescriptorWriter&&) noexcept;
-	DescriptorWriter& operator =(DescriptorWriter&&) noexcept;
+	VKLIB_API DescriptorWriter(DescriptorWriter&&) noexcept;
+	VKLIB_API DescriptorWriter& operator =(DescriptorWriter&&) noexcept;
 
 	// Update descriptor with various types of write info
 	VKLIB_API void Update(const DescriptorLocation& info, const StorageBufferWriteInfo& bufferInfo) const;

@@ -12,7 +12,7 @@ void VK_NAMESPACE::Buffer<bool>::UnmapMemory() const
 	vk::MappedMemoryRange range{};
 	range.setMemory(mChunk.BufferHandles->Memory);
 	range.setOffset(0);
-	range.setSize(mChunk.BufferHandles->ElemCount);
+	range.setSize(mChunk.BufferHandles->BufferSize);
 
 	mChunk.Device->flushMappedMemoryRanges(range);
 }
@@ -63,19 +63,19 @@ bool VK_NAMESPACE::Buffer<bool>::IsMappable()
 
 void VK_NAMESPACE::Buffer<bool>::Reserve(size_t NewCap)
 {
-	if (NewCap > mChunk.BufferHandles->Config.ElemCount)
+	if (NewCap > mChunk.BufferHandles->Config.DeviceSize)
 		ScaleCapacityWithoutLoss(NewCap);
 }
 
 void VK_NAMESPACE::Buffer<bool>::Resize(size_t NewSize)
 {
 	Reserve(NewSize);
-	mChunk.BufferHandles->ElemCount = NewSize;
+	mChunk.BufferHandles->BufferSize = NewSize;
 }
 
 void VK_NAMESPACE::Buffer<bool>::ScaleCapacity(size_t NewSize)
 {
-	mChunk.BufferHandles->Config.ElemCount = NewSize;
+	mChunk.BufferHandles->Config.DeviceSize = NewSize;
 	Core::Buffer NewBuffer = Core::Utils::CreateBuffer(mChunk.BufferHandles->Config);
 
 	auto Device = mChunk.Device;
@@ -85,17 +85,14 @@ void VK_NAMESPACE::Buffer<bool>::ScaleCapacity(size_t NewSize)
 
 void VK_NAMESPACE::Buffer<bool>::ScaleCapacityWithoutLoss(size_t NewSize)
 {
-	mChunk.BufferHandles->Config.ElemCount = NewSize;
+	mChunk.BufferHandles->Config.DeviceSize = NewSize;
 	Core::Buffer NewBuffer = Core::Utils::CreateBuffer(mChunk.BufferHandles->Config);
 
 	vk::BufferCopy CopyRegion{};
-	CopyRegion.setSize(mChunk.BufferHandles->ElemCount * sizeof(Byte));
+	CopyRegion.setSize(mChunk.BufferHandles->BufferSize);
 
 	// Recover the past
 	CopyGPU(NewBuffer, *mChunk.BufferHandles, CopyRegion);
-	NewBuffer.ElemCount = mChunk.BufferHandles->ElemCount;
-
-	auto Device = mChunk.Device;
 
 	mChunk.BufferHandles.SetValue(NewBuffer);
 }
@@ -207,11 +204,11 @@ VK_NAMESPACE::Buffer<bool> VK_NAMESPACE::Buffer<bool>::StageBuffer(size_t count)
 void VK_NAMESPACE::Buffer<bool>::MakeHollow()
 {
 	mChunk.BufferHandles.Reset();
-	mChunk.BufferHandles->ElemCount = 0;
+	mChunk.BufferHandles->BufferSize = 0;
 }
 
 void VK_NAMESPACE::Buffer<bool>::ShrinkToFit()
 {
-	if (mChunk.BufferHandles->ElemCount != mChunk.BufferHandles->Config.ElemCount)
-		Resize(mChunk.BufferHandles->ElemCount);
+	if (mChunk.BufferHandles->BufferSize != mChunk.BufferHandles->Config.DeviceSize)
+		Resize(mChunk.BufferHandles->BufferSize);
 }

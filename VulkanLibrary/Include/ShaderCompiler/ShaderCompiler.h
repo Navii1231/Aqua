@@ -40,7 +40,7 @@ private:
 	bool GenerateSPIR_V(CompileResult& Result, EShLanguage Stage, glslang::TShader& shader);
 
 	void ReflectDescriptorLayouts(CompileResult& Result);
-	void ResetInternal(const CompilerConfig& in);
+	VKLIB_API void ResetInternal(const CompilerConfig& in);
 
 	void OptimizeCode(CompileResult& Result, OptimizerFlag Flag);
 

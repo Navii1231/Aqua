@@ -1,6 +1,6 @@
 #include "Core/Aqpch.h"
 #include "DeferredRenderer/Renderer/FrontEndGraph.h"
-#include "Execution/GraphBuilder.h"
+#include "Execution/GenericDraft.h"
 #include "DeferredRenderer/Pipelines/ShadowPipeline.h"
 #include "Utils/CompilerErrorChecker.h"
 
@@ -11,7 +11,7 @@ struct FrontEndGraphConfig
 	RendererFeatureFlags mFeatures;
 	ShadowCascadeFeature mShadowFeature;
 
-	std::vector<std::string> mOutputs;
+	EXEC_NAMESPACE::Wavefront mOutputs;
 
 	FeatureInfoMap mFeatureInfos;
 	vkLib::Buffer<CameraInfo> mCamera;
@@ -26,7 +26,7 @@ struct FrontEndGraphConfig
 	RenderTargetFactory mFramebufferFactory;
 
 	// new
-	EXEC_NAMESPACE::GraphBuilder mGraphBuilder;
+	EXEC_NAMESPACE::GenericDraft mDraft;
 
 	vkLib::Context mCtx;
 
@@ -55,7 +55,7 @@ void AQUA_NAMESPACE::FrontEndGraph::SetCtx(vkLib::Context ctx)
 	mConfig->mCtx = ctx;
 	mConfig->mFramebufferFactory.SetContextBuilder(ctx.FetchRenderContextBuilder(vk::PipelineBindPoint::eGraphics));
 
-	mConfig->mGraphBuilder.SetCtx(ctx);
+	mConfig->mDraft.SetCtx(ctx);
 }
 
 void AQUA_NAMESPACE::FrontEndGraph::SetEnvironment(EnvironmentRef env)
@@ -85,7 +85,7 @@ void AQUA_NAMESPACE::FrontEndGraph::SetVertexFactory(VertexFactory& factory)
 
 void AQUA_NAMESPACE::FrontEndGraph::PrepareFeatures()
 {
-	mConfig->mGraphBuilder.Clear();
+	mConfig->mDraft.Clear();
 	mConfig->mOutputs.clear();
 
 	PrepareDepthCascades();
@@ -95,6 +95,18 @@ void AQUA_NAMESPACE::FrontEndGraph::PrepareDepthCascades()
 {
 	if ((mConfig->mFeatures & RenderingFeature::eShadow) == RendererFeatureFlags(0))
 		return;
+
+	for (uint32_t i = 0; i < static_cast<uint32_t>(mConfig->mEnv->GetDirLightCount()); i++)
+	{
+		mConfig->mDraft.SubmitOperation(i);
+		mConfig->mOutputs.emplace_back(i);
+	}
+}
+
+AQUA_NAMESPACE::EXEC_NAMESPACE::Graph AQUA_NAMESPACE::FrontEndGraph::CreateGraph()
+{
+	// all m by n cascade network are both the inputs and outputs
+	auto graph = *mConfig->mDraft.Construct(mConfig->mOutputs);
 
 	auto config = mConfig;
 
@@ -106,38 +118,34 @@ void AQUA_NAMESPACE::FrontEndGraph::PrepareDepthCascades()
 
 	auto pipelineBuilder = mConfig->mCtx.MakePipelineBuilder();
 
-	std::string shadowStage = "ShadowStage_";
-
 	for (uint32_t i = 0; i < static_cast<uint32_t>(mConfig->mEnv->GetDirLightCount()); i++)
 	{
-		std::string nodeName = shadowStage + std::to_string(i);
+		graph[i] = EXEC_NAMESPACE::GenericNode(i, EXEC_NAMESPACE::OpType::eGraphics);
 
-		mConfig->mGraphBuilder[nodeName] = EXEC_NAMESPACE::Operation(nodeName, EXEC_NAMESPACE::OpType::eGraphics);
+		graph.InsertPipeOp(i, pipelineBuilder.BuildGraphicsPipeline<ShadowPipeline>(mConfig->mDepthShader, mConfig->mDepthBuffers[i], vertexBindings));
 
-		mConfig->mGraphBuilder.InsertPipelineOp(nodeName, pipelineBuilder.BuildGraphicsPipeline<ShadowPipeline>(mConfig->mDepthShader, mConfig->mDepthBuffers[i], vertexBindings));
-
-		mConfig->mGraphBuilder[nodeName].Fn = [config, offset = i](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[i]).Fn = [config, offset = i](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 			{
 				EXEC_NAMESPACE::CBScope exec(buffer);
 
-				op.GFX->Begin(buffer);
+				op->GFX->Begin(buffer);
 
-				op.GFX->Activate();
+				op->GFX->Activate();
 
-				auto error = op.GFX->SetShaderConstant("eVertex.ShaderConstants.Index_0", offset).or_else(
+				auto error = op->GFX->SetShaderConstant("eVertex.ShaderConstants.Index_0", offset).or_else(
 					[](const vkLib::ShaderConstantError& constError)
 					{
 						return std::expected<bool, vkLib::ShaderConstantError>(true);
 					});
 
-				op.GFX->DrawIndexed(0, 0, 0, 1);
+				op->GFX->DrawIndexed(0, 0, 0, 1);
 
-				op.GFX->End();
+				op->GFX->End();
 			};
 
-		mConfig->mGraphBuilder[nodeName].UpdateFn = [config](EXEC_NAMESPACE::Operation& op)
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[i]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
 			{
-				auto& pipeline = *reinterpret_cast<ShadowPipeline*>(GetRefAddr(op.GFX));
+				auto& pipeline = *reinterpret_cast<ShadowPipeline*>(GetRefAddr(op->GFX));
 
 				pipeline.SetClearDepthStencilValues(1.0f, 0);
 
@@ -149,15 +157,9 @@ void AQUA_NAMESPACE::FrontEndGraph::PrepareDepthCascades()
 				pipeline.UpdateCamera(config->mEnv->GetLightBuffers().mDirCameraInfos);
 				pipeline.UpdateModels(config->mModels);
 			};
-
-		mConfig->mOutputs.emplace_back(nodeName);
 	}
-}
 
-AQUA_NAMESPACE::EXEC_NAMESPACE::Graph AQUA_NAMESPACE::FrontEndGraph::CreateGraph()
-{
-	// all m by n cascade network are both the inputs and outputs
-	return *mConfig->mGraphBuilder.GenerateExecutionGraph(mConfig->mOutputs);
+	return graph;
 }
 
 void AQUA_NAMESPACE::FrontEndGraph::SetModels(Mat4Buf models)
@@ -212,7 +214,7 @@ void AQUA_NAMESPACE::FrontEndGraph::SetupShaders()
 	mConfig->mDepthShader.CompileShaders();
 }
 
-std::vector<std::string> AQUA_NAMESPACE::FrontEndGraph::GetOutputs() const
+AQUA_NAMESPACE::EXEC_NAMESPACE::Wavefront AQUA_NAMESPACE::FrontEndGraph::GetOutputs() const
 {
 	return mConfig->mOutputs;
 }

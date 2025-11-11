@@ -73,6 +73,8 @@ public:
 	// Ends the scope
 	virtual void End() const;
 
+	virtual BasicGraphicsPipeline* Clone(vkLib::Context ctx) const override;
+
 	virtual vk::PipelineBindPoint GetPipelineBindPoint() const { return vk::PipelineBindPoint::eGraphics; }
 	virtual PipelineLayoutData GetPipelineLayoutData() const override { return mHandles->LayoutData; }
 
@@ -96,18 +98,19 @@ public:
 	// The user is expected to manage store them on their side if they want to manage them
 	template <typename T>
 	void SetVertexBuffer(uint32_t binding, vkLib::Buffer<T> buffer) 
-	{ mVertexBuffers[binding] = buffer.GetBufferRsc(); }
+	{ mVertexBuffers[binding] = ReinterpretCast<GenericBuffer::Type>(buffer); }
 
 	template <typename T>
-	void SetIndexBuffer(vkLib::Buffer<T> buffer) { mIndexBuffer = buffer.GetBufferRsc(); }
+	void SetIndexBuffer(vkLib::Buffer<T> buffer) 
+	{ mIndexBuffer = ReinterpretCast<GenericBuffer::Type>(buffer); }
 
 	template <typename T>
 	void SetIndexIndirectBuffer(vkLib::Buffer<T> buffer)
-	{ mIndexIndirectBuffer = buffer.GetBufferRsc(); }
+	{ mIndexIndirectBuffer = ReinterpretCast<GenericBuffer::Type>(buffer); }
 
 	template<typename T>
 	void SetVertexIndirectBuffer(vkLib::Buffer<T> buffer)
-	{ mVertexIndirectBuffer = buffer.GetBufferRsc(); }
+	{ mVertexIndirectBuffer = ReinterpretCast<GenericBuffer::Type>(buffer); }
 
 private:
 	Core::Ref<GraphicsPipelineHandles> mHandles;
@@ -116,11 +119,12 @@ private:
 	mutable vkLib::GraphicsPipelineConfig mConfig;
 
 	// binding to vertex buffer
-	std::vector<vkLib::Core::BufferResource> mVertexBuffers;
-	vkLib::Core::BufferResource mIndexBuffer;
+	std::vector<GenericBuffer> mVertexBuffers;
 
-	vkLib::Core::BufferResource mIndexIndirectBuffer;
-	vkLib::Core::BufferResource mVertexIndirectBuffer;
+	GenericBuffer mIndexBuffer;
+
+	GenericBuffer mIndexIndirectBuffer;
+	GenericBuffer mVertexIndirectBuffer;
 
 	std::vector<vk::ClearValue> mClearValues;
 
@@ -130,8 +134,7 @@ private:
 	virtual void BindVertexBuffers(vk::CommandBuffer commandBuffer) const;
 	virtual void BindIndexBuffer(vk::CommandBuffer commandBuffer) const;
 
-	virtual size_t GetIndexCount() const { return mIndexBuffer.BufferHandles->ElemCount * 
-		mIndexBuffer.BufferHandles->Config.TypeSize / sizeof(MyIndex); }
+	virtual size_t GetIndexCount() const { return mIndexBuffer.GetSize() / sizeof(MyIndex); }
 
 	void BeginRenderPass() const;
 	void EndRenderPass() const;
@@ -221,12 +224,11 @@ void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::DrawVerticesIndirect(
 	BindVertexBuffers(commandBuffer);
 
 	drawCount = drawCount == std::numeric_limits<uint32_t>::max() ?
-		(uint32_t)mVertexIndirectBuffer.BufferHandles->ElemCount * 
-		mVertexIndirectBuffer.BufferHandles->Config.TypeSize / stride : drawCount;
+		(uint32_t)mVertexIndirectBuffer.GetSize() / stride : drawCount;
 
 	BeginRenderPass();
 
-	commandBuffer.drawIndirect(mVertexIndirectBuffer.BufferHandles->Handle,
+	commandBuffer.drawIndirect(mVertexIndirectBuffer.GetNativeHandles().Handle,
 		drawOffset, drawCount, stride);
 
 	EndRenderPass();
@@ -274,12 +276,11 @@ void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::DrawIndexedIndirect(uint
 	BindIndexBuffer(commandBuffer);
 
 	drawCount = drawCount == std::numeric_limits<uint32_t>::max() ?
-		(uint32_t)mIndexIndirectBuffer.BufferHandles->ElemCount *
-		mIndexIndirectBuffer.BufferHandles->Config.TypeSize / stride : drawCount;
+		(uint32_t)mIndexIndirectBuffer.GetSize() / stride : drawCount;
 
 	BeginRenderPass();
 
-	commandBuffer.drawIndexedIndirect(mIndexIndirectBuffer.BufferHandles->Handle, 
+	commandBuffer.drawIndexedIndirect(mIndexIndirectBuffer.GetNativeHandles().Handle, 
 		drawOffset, drawCount, stride);
 
 	EndRenderPass();
@@ -297,6 +298,12 @@ void BasicGraphicsPipeline<BasePipeline>::End() const
 }
 
 template <typename BasePipeline>
+BasicGraphicsPipeline<BasePipeline>* VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::Clone(vkLib::Context ctx) const
+{
+	return reinterpret_cast<BasicGraphicsPipeline*>(reinterpret_cast<const BasePipeline*>(this)->Clone(ctx));
+}
+
+template <typename BasePipeline>
 void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::BindVertexBuffers(vk::CommandBuffer commandBuffer) const
 {
 	if (mVertexBuffers.empty())
@@ -307,7 +314,7 @@ void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::BindVertexBuffers(vk::Co
 
 	for (size_t i = 0; i < mVertexBuffers.size(); i++)
 	{
-		buffers[i] = mVertexBuffers[i].BufferHandles->Handle;
+		buffers[i] = mVertexBuffers[i].GetNativeHandles().Handle;
 		offsets[i] = 0;
 	}
 
@@ -317,7 +324,7 @@ void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::BindVertexBuffers(vk::Co
 template <typename BasePipeline>
 void VK_NAMESPACE::BasicGraphicsPipeline<BasePipeline>::BindIndexBuffer(vk::CommandBuffer commandBuffer) const
 {
-	commandBuffer.bindIndexBuffer(mIndexBuffer.BufferHandles->Handle, 0, vk::IndexType::eUint32);
+	commandBuffer.bindIndexBuffer(mIndexBuffer.GetNativeHandles().Handle, 0, vk::IndexType::eUint32);
 }
 
 template <typename BasePipeline>

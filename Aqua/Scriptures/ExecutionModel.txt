@@ -1,0 +1,101 @@
+Designing a new language for defining arbitrary operations in the computation graph
+
+Reconsidering the execution model of Aqua
+
+Dependencies/edges won't be defined in code anymore
+Only the nodes will be defined in code
+Write the documentation explaining how to define nodes in the new language
+
+The language is quite similar to GLSL to reduce the parsing effort
+To write a parser, all you've to do is to identify the keywords in the code and replace them
+with the corresponding code snippets
+
+Allahu Akbar (let's begin)
+
+* version string (tick)
+* work group sizes of the compute shader (auto generated)
+* global variables
+* struct declarations (same as glsl syntax) not implemented yet
+* resource declarations (buffers only for now)
+* push constants if there are any (from dependencies, meta data 
+	about parameter and translation buffer)
+* user function definitions (from both dependencies as well as main code)
+* main function and code (from op code)
+
+The user could add any arbitrary operation into the draft
+
+* version string:
+#version 450 will be supporting the latest vulkan features automatically
+
+* work group sizes of the compute shader:
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+This will also be auto generated based on the number of invocations
+
+* global variables
+	Syntax: fp32 globalFloat = 0.0;
+
+* struct declarations
+	struct MyType
+	{
+		fp32 BasicType;
+		u32 AnotherBasicType;
+	}
+
+	struct NewType
+	{
+		MyType UserType;
+		fp32 BasicType; // so on and so forth
+	};
+
+* resource declarations:
+	types of buffers there are three types of buffers
+	shared_buffer<fp32> sBuffer(set_idx, binding_idx); // storage buffer provided by the client
+	uniform_buffer<fp32> uBuffer(set_idx, binding_idx); // uniform buffer provided by the client
+	sampled_image<sampler2d> sImage(set_idx, binding_idx); // sampled image
+	image<rgba8> uImage(set_idx, binding_idx); // image
+
+
+* push constants:
+	auto generated based on the meta data of the operation
+	push constants can't be defined by the user
+
+* user function definitions:
+	Syntax:
+		function function_name(parameter_list)->return_type
+		{
+			// function body
+		}
+	They will be parsed as normal GLSL functions except for the special macros and declarations ofc
+
+* main function and code:
+	The main function is called Evaluate
+	The function signature is auto generated based on the operation definition
+	The function body is provided by the user
+
+--> For an arbitrary operation, the API needs to
+	generate the corresponding compute shader for a given operation
+
+Example:
+
+shared_buffer buffer(0, 0);
+
+function sigmoid(fp32 x)->fp32
+{
+	return 1.0 / (1.0 + exp(-x));
+}
+
+function Evaluate()->void
+{
+	// the parser will only accept the uint type
+	// Ideally, u32 should work. The parser should take care of it, converting it into uint
+	// however, for now, we'll only use GLSL native types withing the functions
+	// Khuda Hafis
+	u32 global_id = gl_GlobalInvocationID.x;
+	fp32 value = buffer[global_id];
+	buffer[global_id] = sigmoid(value);
+}
+
+that's it. easy to parse and generate the corresponding compute shader
+It's also minimalistic and easy to understand for the users
+compute shaders require a lot of boilerplate code, this way we can reduce the effort
+and the pipeline generation is also automated once the code is defined

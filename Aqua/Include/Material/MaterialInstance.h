@@ -35,7 +35,8 @@ using MaterialInstanceInfoRef = SharedRef<MaterialInstanceInfo>;
 class MaterialInstance
 {
 public:
-	MaterialInstance() = default;
+	MaterialInstance() : mCoreMaterial(-1) {}
+
 	virtual ~MaterialInstance() = default;
 
 	template <typename Fn>

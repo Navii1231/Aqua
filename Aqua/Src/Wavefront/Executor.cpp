@@ -57,31 +57,16 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructExecutionGraphs(uint3
 {
 	mMaxBounce = depth;
 
-	EXEC_NAMESPACE::GraphBuilder rayGenBuilder;
-	EXEC_NAMESPACE::GraphBuilder traceStepBuilder;
-	EXEC_NAMESPACE::GraphBuilder postProcessBuilder;
+	EXEC_NAMESPACE::GenericDraft traceStepBuilder;
 
-	std::vector<std::string> rayGenOutputs;
-	std::vector<std::string> traceStepOutputs;
-	std::vector<std::string> postProcessInputs;
+	std::vector<EXEC_NAMESPACE::NodeID> rayGenOutputs;
+	std::vector<EXEC_NAMESPACE::NodeID> traceStepOutputs;
+	std::vector<EXEC_NAMESPACE::NodeID> postProcessInputs;
 
 	// inserting the ray material
-	ConstructRayGenExec(rayGenBuilder, rayGenOutputs);
-	ConstructTraceExec(traceStepBuilder, traceStepOutputs);
-	ConstructPostProcessExec(postProcessBuilder, postProcessInputs);
-
-	// constructing the execution graphs
-	mRayGenGraph = *rayGenBuilder.GenerateExecutionGraph(rayGenOutputs);
-	mPostProcessGraph = *postProcessBuilder.GenerateExecutionGraph({ RAY_CALC_LUMINANCE_NODE });
-
-	mRayGenExecList = mRayGenGraph.SortEntries();
-	mPostProcessExecList = mPostProcessGraph.SortEntries();
-
-	for (uint32_t i = 0; i < depth; i++)
-	{
-		mTraceGraphs.emplace_back(*traceStepBuilder.GenerateExecutionGraph(traceStepOutputs));
-		mTraceExecList.emplace_back(mTraceGraphs[i].SortEntries());
-	}
+	ConstructRayGenExec(rayGenOutputs);
+	ConstructTraceExec(traceStepOutputs);
+	ConstructPostProcessExec(postProcessInputs);
 
 	mDebugMode = !mDebugMode;
 	SetDebugMode(!mDebugMode);
@@ -172,20 +157,20 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::SetCameraView(const glm::mat4&
 	mExecutorInfo->TracingSession.SetCameraView(cameraView);
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectRayGenToTrace(const std::vector<std::string>& traceInput)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectRayGenToTrace(const EXEC_NAMESPACE::Wavefront& traceInput)
 {
 	if(!mTraceGraphs.empty())
 		EXEC_NAMESPACE::SerializeExecutionWavefronts(mCtx, { mRayGenGraph, mTraceGraphs.front() }, { traceInput });
 }
 
 void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectTraces(uint32_t leadingIdx,
-	uint32_t dependentIdx, const std::vector<std::string>& traceInputs)
+	uint32_t dependentIdx, const EXEC_NAMESPACE::Wavefront& traceInputs)
 {
 	EXEC_NAMESPACE::SerializeExecutionWavefronts(mCtx, { mTraceGraphs[leadingIdx], 
 		mTraceGraphs[dependentIdx] }, { traceInputs });
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectTraceToPostProcess(const std::vector<std::string>& postInputs)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectTraceToPostProcess(const EXEC_NAMESPACE::Wavefront& postInputs)
 {
 	if(!mTraceGraphs.empty())
 		EXEC_NAMESPACE::SerializeExecutionWavefronts(mCtx, { mTraceGraphs.back(), mPostProcessGraph }, { postInputs });
@@ -193,11 +178,11 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConnectTraceToPostProcess(cons
 
 void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::JoinGraphs()
 {
-	ConnectRayGenToTrace({ RAY_INTERSECTION_TEST_NODE });
-	ConnectTraceToPostProcess({ RAY_CALC_LUMINANCE_NODE });
+	ConnectRayGenToTrace({ 0 });
+	ConnectTraceToPostProcess({ 1 });
 
 	for (uint32_t i = 1; i < mMaxBounce; i++)
-		ConnectTraces(i - 1, i, { RAY_INTERSECTION_TEST_NODE });
+		ConnectTraces(i - 1, i, { 0 });
 }
 
 void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::SeparateGraphs()
@@ -215,108 +200,124 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::SeparateGraphs()
 	}
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructTraceExec(
-	EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& outputs)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructTraceExec(EXEC_NAMESPACE::Wavefront& outputs)
 {
+	EXEC_NAMESPACE::GenericDraft draft(mCtx);
+
 	outputs.clear();
 	outputs.reserve(mExecutorInfo->MaterialResources.size() + 1);
 
-	builder.Clear();
-	builder.SetCtx(mCtx);
+	draft.Clear();
+	draft.SetCtx(mCtx);
 
-	std::string intersectionName = RAY_INTERSECTION_TEST_NODE;
-	std::string materialName = RAY_MATERIAL_NODE;
-	std::string emptyMaterial = RAY_EMPTY_MATERIAL_NODE;
+	EXEC_NAMESPACE::NodeID intersectionName = 0;
+	EXEC_NAMESPACE::NodeID materialName = 1;
+	EXEC_NAMESPACE::NodeID emptyMaterial = mExecutorInfo->MaterialResources.size() + 1;
 
-	builder.InsertPipelineOp(intersectionName, mExecutorInfo->PipelineResources.IntersectionPipeline);
+	draft.SubmitOperation(intersectionName);
 
-	builder[intersectionName].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmd);
-		RecordIntersectionTester(cmd, mExecutionBlock.mActiveBuffer);
-	});
-
-	uint32_t instanceIdx = 0;
+	uint32_t instanceIdx = static_cast<uint32_t>(materialName);
 
 	for (const auto& materialInstance : mExecutorInfo->MaterialResources)
 	{
-		std::string instanceName = materialName + std::to_string(instanceIdx);
-
-		builder[instanceName] = materialInstance.GetMaterial();
-
-		builder[instanceName].SetOpFn([this, instanceIdx](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-		{
-			EXEC_NAMESPACE::CBScope executioner(cmd);
-			RecordMaterialPipeline(cmd, instanceIdx, mExecutionBlock.mBounceIdx - 1, mExecutionBlock.mActiveBuffer);
-		});
-
-		instanceIdx++;
-
-		builder.InsertDependency(intersectionName, instanceName);
-		outputs.push_back(instanceName);
+		draft.SubmitOperation(instanceIdx);
+		draft.Connect(intersectionName, instanceIdx++, vk::PipelineStageFlagBits::eTopOfPipe);
 	}
 
-	builder[emptyMaterial] = mExecutorInfo->PipelineResources.InactiveRayShader.GetMaterial();
-
-	builder[emptyMaterial].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmd);
-		RecordMaterialPipeline(cmd, -1, mExecutionBlock.mBounceIdx - 1, mExecutionBlock.mActiveBuffer);
-	});
-
-	builder.InsertDependency(intersectionName, emptyMaterial);
-
+	draft.SubmitOperation(emptyMaterial);
 	outputs.push_back(emptyMaterial);
+
+	for (uint32_t i = 0; i < mMaxBounce; i++)
+	{
+		mTraceGraphs.emplace_back(*draft.Construct(outputs));
+		mTraceExecList.emplace_back(mTraceGraphs[i].SortEntries());
+
+		mTraceGraphs.back().InsertPipeOp(intersectionName, mExecutorInfo->PipelineResources.IntersectionPipeline);
+
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(mTraceGraphs.back()[intersectionName]).SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+			{
+				EXEC_NAMESPACE::CBScope executioner(cmd);
+				RecordIntersectionTester(cmd, mExecutionBlock.mActiveBuffer);
+			});
+
+		instanceIdx = 0;
+
+		for (const auto& materialInstance : mExecutorInfo->MaterialResources)
+		{
+			mTraceGraphs.back()[instanceIdx] = materialInstance.GetMaterial();
+
+			ConvertNode<EXEC_NAMESPACE::GenericNode>(mTraceGraphs.back()[instanceIdx]).SetOpFn([this, instanceIdx](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+				{
+					EXEC_NAMESPACE::CBScope executioner(cmd);
+					RecordMaterialPipeline(cmd, instanceIdx, mExecutionBlock.mBounceIdx - 1, mExecutionBlock.mActiveBuffer);
+				});
+
+			instanceIdx++;
+		}
+
+		mTraceGraphs.back()[emptyMaterial] = mExecutorInfo->PipelineResources.InactiveRayShader.GetMaterial();
+
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(mTraceGraphs.back()[emptyMaterial]).SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+			{
+				EXEC_NAMESPACE::CBScope executioner(cmd);
+				RecordMaterialPipeline(cmd, -1, mExecutionBlock.mBounceIdx - 1, mExecutionBlock.mActiveBuffer);
+			});
+	}
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructRayGenExec(
-	EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& outputs)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructRayGenExec(EXEC_NAMESPACE::Wavefront& outputs)
 {
-	std::string rayGenerationName = RAY_GEN_NODE;
+	EXEC_NAMESPACE::GenericDraft draft(mCtx);
 
 	outputs.clear();
-	outputs.push_back(rayGenerationName);
+	outputs.push_back(0);
 
-	builder.Clear();
-	builder.SetCtx(mCtx);
+	draft.Clear();
+	draft.SetCtx(mCtx);
 
-	builder.InsertPipelineOp(rayGenerationName, mExecutorInfo->PipelineResources.RayGenerator);
+	draft[0].Fn = [this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+		{
+			EXEC_NAMESPACE::CBScope executioner(cmd);
+			RecordRayGenerator(cmd, mExecutionBlock.mActiveBuffer);
+		};
 
-	builder[rayGenerationName].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmd);
-		RecordRayGenerator(cmd, mExecutionBlock.mActiveBuffer);
-	});
+	draft.SubmitPipeline(0, mExecutorInfo->PipelineResources.RayGenerator);
+
+	mRayGenGraph = *draft.Construct(outputs);
+
+	mRayGenExecList = mRayGenGraph.SortEntries();
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructPostProcessExec(
-	EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& inputs)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructPostProcessExec(EXEC_NAMESPACE::Wavefront& inputs)
 {
-	std::string postProcessName = RAY_POST_PROCESS_NODE;
-	std::string luminanceName = RAY_CALC_LUMINANCE_NODE;
+	EXEC_NAMESPACE::GenericDraft draft(mCtx);
 
 	inputs.clear();
-	inputs.push_back(luminanceName);
+	inputs.push_back(0);
 
-	builder.Clear();
-	builder.SetCtx(mCtx);
+	draft.Clear();
+	draft.SetCtx(mCtx);
 
-	builder.InsertPipelineOp(luminanceName, mExecutorInfo->PipelineResources.LuminanceMean);
-	builder.InsertPipelineOp(postProcessName, mExecutorInfo->PipelineResources.PostProcessor);
+	draft[0].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+		{
+			EXEC_NAMESPACE::CBScope executioner(cmd);
+			RecordLuminanceMean(cmd, mExecutionBlock.mActiveBuffer);
+		});
 
-	builder[luminanceName].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmd);
-		RecordLuminanceMean(cmd, mExecutionBlock.mActiveBuffer);
-	});
+	draft[1].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
+		{
+			EXEC_NAMESPACE::CBScope executioner(cmd);
+			RecordPostProcess(cmd);
+		});
 
-	builder[postProcessName].SetOpFn([this](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmd);
-		RecordPostProcess(cmd);
-	});
+	draft.SubmitPipeline(0, mExecutorInfo->PipelineResources.LuminanceMean);
+	draft.SubmitPipeline(1, mExecutorInfo->PipelineResources.PostProcessor);
+	
+	draft.Connect(0, 1, vk::PipelineStageFlagBits::eTopOfPipe);
 
-	builder.InsertDependency(luminanceName, postProcessName);
+	mPostProcessGraph = *draft.Construct(inputs);
+
+	mPostProcessExecList = mPostProcessGraph.SortEntries();
 }
 
 uint32_t AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::GetRandomNumber()

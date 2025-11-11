@@ -1,250 +1,238 @@
 #pragma once
 #include "GraphConfig.h"
+#include "GenericNode.h"
 
 AQUA_BEGIN
 EXEC_BEGIN
 
-enum class TraversalState
-{
-	eSuccess              = 0,
-	eQuit                 = 1,
-	eSkip                 = 2,
-};
-
-enum class EnsembleState
-{
-	eValid                = 0,
-	eIntermediate         = 1,
-	eInvalid              = 2,
-};
-
 using ExecutionUnit = vkLib::ExecutionUnit;
+using GraphList = std::vector<SharedRef<Node>>;
+using GraphNodes = std::map<NodeID, SharedRef<Node>>;
 
-struct DependencyInjection
+template <typename _NodeRefT>
+struct BasicGraph
 {
-	std::string Name;
-	std::string ConnectedOp;
+	using MyNodeRef = _NodeRefT;
+	using MyNodeRefMap = std::map<NodeID, _NodeRefT>;
+	using MyNodeTraversalStates = std::map<NodeID, GraphTraversalState>;
+	using MyGraphList = std::vector<MyNodeRef>;
 
-	vk::PipelineStageFlags WaitPoint = vk::PipelineStageFlagBits::eTopOfPipe;
-	vkLib::Core::Ref<vk::Semaphore> Signal;
-
-	void SetName(const std::string& name) { Name = name; }
-	void Connect(const std::string& connect) { ConnectedOp = connect; }
-	void SetWaitPoint(vk::PipelineStageFlags waitPoint) { WaitPoint = waitPoint; }
-	void SetSignal(vkLib::Core::Ref<vk::Semaphore> semaphore) { Signal = semaphore; }
-};
-
-struct Dependency
-{
-	// The connection on which the dependency is formed
-	SharedRef<Operation> Incoming;
-	SharedRef<Operation> Outgoing;
-
-	vk::PipelineStageFlags WaitPoint;
-	vkLib::Core::Ref<vk::Semaphore> Signal;
-
-	void SetIncomingOP(SharedRef<Operation> connection) { Incoming = connection; }
-	void SetOutgoingOP(SharedRef<Operation> connection) { Outgoing = connection; }
-	void SetWaitPoint(vk::PipelineStageFlags waitPoint) { WaitPoint = waitPoint; }
-	void SetSignal(vkLib::Core::Ref<vk::Semaphore> semaphore) { Signal = semaphore; }
-};
-
-using OpFn = std::function<void(vk::CommandBuffer, const Operation&)>;
-using OpUpdateFn = std::function<void(Operation&)>;
-
-using SemaphoreList = std::vector<vk::Semaphore>;
-using PipelineStageList = std::vector<vk::PipelineStageFlags>;
-
-using Wavefront = std::vector<std::string>;
-
-struct Operation
-{
-	std::string Name;
-
-	// execution data; completely removable if we have Fn as a lambda
-	SharedRef<vkLib::GraphicsPipeline> GFX;
-	SharedRef<vkLib::ComputePipeline> Cmp;
-	//SharedRef<vkLib::RayTracingPipeline> RTX;
-
-	mutable OpStates States;
-
-	OpFn Fn = [](vk::CommandBuffer, const Operation&) {};
-	OpUpdateFn UpdateFn = [](Operation&) {}; // could be used to update descriptors
-
-	std::vector<Dependency> InputConnections;  // Operations that must finish before triggering this one
-	std::vector<Dependency> OutputConnections; // Operations that can't begin before this one is finished
-
-	std::vector<DependencyInjection> InputInjections; // an external event must finish before this one starts
-	std::vector<DependencyInjection> OutputInjections; // an external event is dependent upon this one
-
-	std::uintptr_t OpID = 0; // can be used to uniquely identify the node or as a storage for the user pointer
-
-	void operator()(vk::CommandBuffer cmd, vkLib::Core::Worker executor) const;
-	void operator()(vk::CommandBuffer cmd, vkLib::Core::Ref<vkLib::Core::WorkerQueue> worker, vk::Fence fence = nullptr) const;
-
-	void SetOpFn(OpFn&& fn) { Fn = fn; }
-
-	void AddInputConnection(const Dependency& dependency) { InputConnections.emplace_back(dependency); }
-	void AddOutputConnection(const Dependency& dependency) { OutputConnections.emplace_back(dependency); }
-
-	void AddInputInjection(const DependencyInjection& inj) { InputInjections.emplace_back(inj); }
-	void AddOutputInjection(const DependencyInjection& inj) { OutputInjections.emplace_back(inj); }
-
-	OpType GetOpType() const { return States.Type; }
-
-	AQUA_API std::expected<const vkLib::BasicPipeline*, OpType> GetBasicPipeline() const;
-	AQUA_API std::expected<vkLib::BasicPipeline*, OpType> GetBasicPipeline();
-	AQUA_API bool Execute(vk::CommandBuffer cmd, vkLib::Core::Worker workers) const;
-	AQUA_API bool Execute(vk::CommandBuffer cmd, vkLib::Core::Ref<vkLib::Core::WorkerQueue> worker, vk::Fence fence = nullptr) const;
-
-	AQUA_API vk::SubmitInfo SetupSubmitInfo(vk::CommandBuffer& cmd, SemaphoreList& waitingPoints,
-		SemaphoreList& signalList, PipelineStageList& pipelineStages) const;
-
-	Operation() = default;
-	Operation(const std::string& name, OpType type)
-		: Name(name) { States.Type = type; }
-};
-
-using GraphList = std::vector<SharedRef<Operation>>;
-using GraphOps = std::unordered_map<std::string, SharedRef<Operation>>;
-
-// Recursive function to generate the sorted array of operations
-AQUA_API void InsertNode(GraphList& list, SharedRef<Operation> node);
-AQUA_API bool FindClosedCircuit(SharedRef<Operation> node);
-
-struct Graph
-{
 	Wavefront InputNodes;
 	Wavefront OutputNodes;
-	GraphOps Nodes;
+	MyNodeRefMap Nodes;
+
+	// keeping track of the node states
+	mutable MyNodeTraversalStates TraversalStates;
 
 	SharedRef<std::mutex> Lock;
-	vkLib::Context Ctx;
 
-	AQUA_API void Update() const;
-	AQUA_API GraphList SortEntries() const;
-	AQUA_API std::expected<bool, GraphError> Validate() const;
+	void Update() const;
+	MyGraphList SortEntries() const;
+	std::expected<bool, GraphError> Validate() const;
 
-	AQUA_API void ClearInputInjections() const;
-	AQUA_API void ClearOutputInjections() const;
+	// legacy functions we're right now stuck with
+	template <typename _Pipeline>
+	void InsertPipeOp(NodeID nodeId, const _Pipeline& pipeline);
 
-	const Operation& operator[](const std::string& name) const { return *Nodes.at(name); }
+	template <typename _Op>
+	void InsertOperation(vkLib::Context ctx, NodeID nodeId, const _Op& op);
+
+	void ClearInputInjections() const;
+	void ClearOutputInjections() const;
+	// end of legacy functions
+
+	Node& operator[](NodeID nodeId) { return *Nodes[nodeId]; }
+	const Node& operator[](NodeID nodeId) const { return *Nodes.at(nodeId); }
 
 	// external dependencies
-	AQUA_API std::expected<bool, GraphError> InjectInputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
-	AQUA_API std::expected<bool, GraphError> InjectOutputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
+	std::expected<bool, GraphError> InjectInputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
+
+	std::expected<bool, GraphError> InjectOutputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
+
+	// Recursive function to generate the sorted array of operations
+	void InsertNode(MyGraphList& list, NodeID id, MyNodeRef node) const;
+	bool FindClosedCircuit(NodeID id, MyNodeRef node) const;
 };
 
-class Ensemble
+template <typename _NodeRefT>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Update() const
 {
-public:
-	using GraphSeq = std::vector<Graph>;
-	using EnsembleSeq = std::vector<Ensemble>;
-	using SeqVariant = std::variant<GraphSeq, EnsembleSeq>;
-
-public:
-	Ensemble() = default;
-
-	// core API
-	AQUA_API void Update() const;
-	AQUA_API GraphList SortEntries() const;
-	AQUA_API std::vector<GraphList> SortEntriesByGroups() const;
-
-	GraphSeq GetGraphs() const { return std::get<GraphSeq>(mVariant); }
-	EnsembleSeq GetEnsembleSeq() const { return std::get<EnsembleSeq>(mVariant); }
-
-	const Ensemble& operator[](size_t idx) const { return std::get<EnsembleSeq>(mVariant)[idx]; }
-	Ensemble& operator[](size_t idx) { return std::get<EnsembleSeq>(mVariant)[idx]; }
-
-	typename EnsembleSeq::iterator begin() { return std::get<EnsembleSeq>(mVariant).begin(); }
-	typename EnsembleSeq::const_iterator begin() const { return std::get<EnsembleSeq>(mVariant).begin(); }
-	typename EnsembleSeq::iterator end() { return std::get<EnsembleSeq>(mVariant).end(); }
-	typename EnsembleSeq::const_iterator end() const { return std::get<EnsembleSeq>(mVariant).end(); }
-
-	const Graph& Fetch(size_t idx) const { return std::get<GraphSeq>(mVariant)[idx]; }
-	Graph& Fetch(size_t idx) { return std::get<GraphSeq>(mVariant)[idx]; }
-
-	EnsembleState GetState() const { return mState; }
-
-	AQUA_API Wavefront GetInputWavefront() const;
-	AQUA_API Wavefront GetOutputWavefront() const;
-
-	void SetCtx(vkLib::Context ctx) { mCtx = ctx; }
-	void SetSeq(const SeqVariant& seq) { mVariant = seq; }
-
-	// checking out the ensemble content
-	bool IsGraphSeq() const { return std::holds_alternative<GraphSeq>(mVariant); }
-	bool IsEnsemble() const { return std::holds_alternative<EnsembleSeq>(mVariant); }
-
-	// creates the nodes
-	AQUA_API static Ensemble MakeSeq(const GraphSeq& seq);
-	AQUA_API static Ensemble MakeSeq(const EnsembleSeq& seq);
-
-	template <typename It>
-	static Ensemble MakeSeq(It begin, It end);
-
-	AQUA_API static Ensemble Flatten(const Ensemble& ensemble);
-	AQUA_API static Ensemble Heapify(const Ensemble& flatEnsemble, const std::vector<size_t>& cuts);
-
-	template <typename _Ensemble, typename GraphPred, typename EnsPred>
-	static TraversalState Traverse(_Ensemble&& ensemble, GraphPred&& graphPred, EnsPred&& ensPred);
-
-	AQUA_API static void UpdateEnsemble(const Ensemble& ensemble);
-	AQUA_API static void SortEnsembleEntries(GraphList& entries, const Ensemble& ensemble);
-
-private:
-	vkLib::Context mCtx;
-	SeqVariant mVariant;
-
-	mutable EnsembleState mState = EnsembleState::eInvalid;
-
-private:
-	void SetState(EnsembleState state) const;
-};
-
-template <typename It>
-Ensemble AQUA_NAMESPACE::EXEC_NAMESPACE::Ensemble::MakeSeq(It begin, It end)
-{
-	return MakeSeq(std::vector(begin, end));
+	for (const auto& [name, node] : Nodes)
+		node->Update();
 }
 
-template <typename _Ensemble, typename GraphPred, typename EnsPred>
-TraversalState Ensemble::Traverse(_Ensemble&& ensemble, GraphPred&& graphPred, EnsPred&& ensPred)
+template <typename _NodeRefT>
+typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::MyGraphList AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::SortEntries() const
 {
-	auto state = ensPred(std::forward<_Ensemble>(ensemble));
+	std::lock_guard guard(*Lock);
 
-	if (state != TraversalState::eSuccess)
-		return state;
+	MyGraphList list;
+	list.reserve(Nodes.size());
 
-	if (ensemble.IsGraphSeq())
+	for (auto& node : TraversalStates)
+		node.second = GraphTraversalState::ePending;
+
+	for (const auto& path : OutputNodes)
 	{
-		auto& graphs = std::get<Ensemble::GraphSeq>(ensemble.mVariant);
-
-		for (auto&& graph : graphs)
-		{
-			auto state = graphPred(graph);
-
-			if (state != TraversalState::eSuccess)
-				return state;
-		}
-
-		return TraversalState::eSuccess;
+		InsertNode(list, path, Nodes.at(path));
 	}
 
-	auto& ensembles = std::get<Ensemble::EnsembleSeq>(ensemble.mVariant);
-
-	for (auto&& ensemble : ensembles)
-	{
-		auto state = Ensemble::Traverse(std::forward<_Ensemble>(ensemble), 
-			std::forward<GraphPred>(graphPred), std::forward<EnsPred>(ensPred));
-
-		if (state == TraversalState::eQuit)
-			return state;
-	}
-
-	return TraversalState::eSuccess;
+	return list;
 }
 
+template <typename _NodeRefT>
+std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Validate() const
+{
+	std::lock_guard guard(*Lock);
+
+	for (const auto& probe : OutputNodes)
+	{
+		if (FindClosedCircuit(probe, Nodes.at(probe)))
+			return std::unexpected(GraphError::eFoundEmbeddedCircuit);
+
+		for (auto& [id, node] : Nodes)
+			TraversalStates[id] = GraphTraversalState::ePending;
+	}
+
+	return true;
+}
+
+template <typename _NodeRefT>
+template <typename _Pipeline>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InsertPipeOp(NodeID nodeId, const _Pipeline& pipeline)
+{
+	_STL_VERIFY(Nodes.find(nodeId) != Nodes.end(), "Operation doesn't exist");
+
+	Aqua::SharedRef<GenericNode> opRef = std::reinterpret_pointer_cast<GenericNode>(Nodes[nodeId]);
+
+	switch (pipeline.GetPipelineBindPoint())
+	{
+	case vk::PipelineBindPoint::eGraphics:
+		opRef->Type = OpType::eGraphics;
+		opRef->GFX = std::reinterpret_pointer_cast<vkLib::GraphicsPipeline>(MakeRef<_Pipeline>(pipeline));
+		break;
+	case vk::PipelineBindPoint::eCompute:
+		opRef->Type = OpType::eCompute;
+		opRef->Cmp = std::reinterpret_pointer_cast<vkLib::ComputePipeline>(MakeRef<_Pipeline>(pipeline));
+		break;
+	case vk::PipelineBindPoint::eRayTracingKHR:
+		opRef->Type = OpType::eRayTracing;
+		_STL_ASSERT(false, "Ray tracing pipeline is yet to implement in the vkLib");
+		break;
+	default:
+		return;
+	}
+}
+
+template <typename _NodeRefT>
+template <typename _Op>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InsertOperation(vkLib::Context ctx, NodeID nodeId, const _Op& op)
+{
+	_STL_VERIFY(Nodes.find(nodeId) != Nodes.end(), "Node doesn't exist");
+
+	Aqua::SharedRef<Node> opRef = MakeRef(op);
+	opRef->CloneDependencies(ctx, GetRefAddr(Nodes[nodeId]));
+
+	Nodes[nodeId] = opRef;
+}
+
+template <typename _NodeRefT>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::ClearInputInjections() const
+{
+	for (auto& [name, op] : Nodes)
+	{
+		op->InputInjections.clear();
+	}
+}
+
+template <typename _NodeRefT>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::ClearOutputInjections() const
+{
+	for (auto& [name, op] : Nodes)
+	{
+		op->OutputInjections.clear();
+	}
+}
+
+template <typename _NodeRefT>
+std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InjectInputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const
+{
+	for (const auto& injection : injections)
+	{
+		if (Nodes.find(injection.ConnectedOp) == Nodes.end())
+			return std::unexpected(GraphError::eInjectedOpDoesntExist);
+	}
+
+	for (const auto& injection : injections)
+	{
+		auto op = Nodes.at(injection.ConnectedOp);
+		op->AddInputInjection(injection);
+	}
+
+	return true;
+}
+
+template <typename _NodeRefT>
+std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InjectOutputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const
+{
+	for (const auto& injection : injections)
+	{
+		if (Nodes.find(injection.ConnectedOp) == Nodes.end())
+			return std::unexpected(GraphError::eInjectedOpDoesntExist);
+	}
+
+	for (const auto& injection : injections)
+	{
+		auto op = Nodes.at(injection.ConnectedOp);
+		op->AddOutputInjection(injection);
+	}
+
+	return true;
+}
+
+template <typename _NodeRefT>
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InsertNode(MyGraphList& list, NodeID id, MyNodeRef node) const
+{
+	// if the node is already visited, we exit
+	if (TraversalStates[id] == GraphTraversalState::eVisited)
+		return;
+
+	// visit all incoming connections first
+	for (const auto& connection : node->GetInputConnections())
+		InsertNode(list, static_cast<NodeID>(*connection), Nodes.at(static_cast<NodeID>(*connection)));
+
+	// otherwise we insert it into the sorted list
+	list.emplace_back(node);
+	TraversalStates[id] = GraphTraversalState::eVisited;
+}
+
+template <typename _NodeRefT>
+bool AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::FindClosedCircuit(NodeID id, MyNodeRef node) const
+{
+	if (TraversalStates[id] == GraphTraversalState::eVisited)
+		return false;
+
+	TraversalStates[id] = GraphTraversalState::eVisiting;
+
+	for (const auto& input : node->GetInputConnections())
+	{
+		// return if we find a closed circuit
+		if (TraversalStates[static_cast<NodeID>(*input)] == GraphTraversalState::eVisiting)
+			return true;
+
+		if (FindClosedCircuit(static_cast<NodeID>(*input), Nodes.at(static_cast<NodeID>(*input))))
+			return true;
+	}
+
+	TraversalStates[id] = GraphTraversalState::eVisited;
+
+	return false;
+}
+
+template <typename _NodeType1, typename _NodeType2>
+_NodeType1& ConvertNode(_NodeType2& node) { return *reinterpret_cast<_NodeType1*>(&node); }
+
+using Graph = BasicGraph<SharedRef<Node>>;
 
 // output layers are already defined in the Graph struct
 // if there are n graphs, there will be n - 1 consecutive dependencies, 
@@ -262,9 +250,7 @@ AQUA_API vk::Result WaitFor(const vk::ArrayProxy<ExecutionUnit>& execUnits, bool
 AQUA_API std::expected<uint32_t, vk::Result> FindFreeExecUnit(const vk::ArrayProxy<ExecutionUnit>& execUnits, std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max());
 
 // cloning
-AQUA_API Operation Clone(vkLib::Context ctx, const Operation& op);
 AQUA_API Graph Clone(vkLib::Context ctx, const Graph& graph);
-AQUA_API Ensemble Clone(vkLib::Context ctx, const Ensemble& ensemble);
 
 EXEC_END
 AQUA_END

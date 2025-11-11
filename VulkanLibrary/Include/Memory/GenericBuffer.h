@@ -16,6 +16,12 @@ public:
 public:
 	Buffer() = default;
 
+	template <typename AnyType>
+	Buffer(const Buffer<AnyType>& anyType);
+
+	template <typename AnyType>
+	Buffer& operator=(const Buffer<AnyType>& anyType);
+
 	template <typename Iter>
 	void AppendBuf(Iter Begin, Iter End);
 
@@ -35,7 +41,7 @@ public:
 	VKLIB_API void TransferOwnership(uint32_t DstQueueFamilyIndex) const;
 	VKLIB_API void TransferOwnership(vk::QueueFlagBits optimizedCaps) const;
 
-	void Clear() { mChunk.BufferHandles->ElemCount = 0; }
+	void Clear() { mChunk.BufferHandles->BufferSize = 0; }
 	bool Empty() const { return GetSize() == 0; }
 
 	VKLIB_API bool IsMappable();
@@ -44,15 +50,17 @@ public:
 	const Core::Buffer& GetNativeHandles() const { return *mChunk.BufferHandles; }
 	Core::BufferConfig GetBufferConfig() const { return mChunk.BufferHandles->Config; }
 
-	size_t GetSize() const { return mChunk.BufferHandles->ElemCount; }
-	vk::DeviceSize GetDeviceSize() const { return mChunk.BufferHandles->ElemCount; }
-	size_t GetCapacity() const { return mChunk.BufferHandles->Config.ElemCount; }
+	size_t GetSize() const { return mChunk.BufferHandles->BufferSize; }
+	vk::DeviceSize GetDeviceSize() const { return mChunk.BufferHandles->BufferSize; }
+	size_t GetCapacity() const { return mChunk.BufferHandles->Config.DeviceSize; }
 
 	VKLIB_API void Reserve(size_t NewCap);
 	VKLIB_API void Resize(size_t NewSize);
 	VKLIB_API void ShrinkToFit();
 
 	explicit operator bool() const { return static_cast<bool>(mChunk.BufferHandles); }
+
+	constexpr static vk::DeviceSize sTypeSize = sizeof(Byte);
 
 private:
 	Core::BufferResource mChunk;
@@ -71,20 +79,23 @@ private:
 	template <typename _Rsc>
 	friend _Rsc Clone(Context, const _Rsc&);
 
+	template <typename T1, typename T2>
+	friend Buffer<T1> ReinterpretCast(Buffer<T2> buffer);
+
 private:
 	// Helper Functions...
-	void ScaleCapacity(size_t NewSize);
-	void ScaleCapacityWithoutLoss(size_t NewSize);
-	void CopyGPU(Core::Buffer& DstBuffer, const Core::Buffer& SrcBuffer,
+	VKLIB_API void ScaleCapacity(size_t NewSize);
+	VKLIB_API void ScaleCapacityWithoutLoss(size_t NewSize);
+	VKLIB_API void CopyGPU(Core::Buffer& DstBuffer, const Core::Buffer& SrcBuffer,
 		const vk::ArrayProxy<vk::BufferCopy>& CopyRegions);
 
 	// Helper methods for ownership transfer
-	void ReleaseBuffer(uint32_t dstIndex, vk::Semaphore bufferReleased) const;
-	void AcquireBuffer(uint32_t acquiringFamily, vk::Semaphore bufferReleased) const;
+	VKLIB_API void ReleaseBuffer(uint32_t dstIndex, vk::Semaphore bufferReleased) const;
+	VKLIB_API void AcquireBuffer(uint32_t acquiringFamily, vk::Semaphore bufferReleased) const;
 
-	Buffer<bool> StageBuffer(size_t count);
+	VKLIB_API Buffer<bool> StageBuffer(size_t count);
 
-	void MakeHollow();
+	VKLIB_API void MakeHollow();
 };
 
 template <typename T, typename Cont>
@@ -136,6 +147,19 @@ Buffer<bool>& operator >>(Buffer<bool>& vkBuf, Cont& cpuBuf)
 	return vkBuf;
 }
 
+template <typename AnyType>
+VK_NAMESPACE::Buffer<bool>::Buffer(const Buffer<AnyType>& anyType)
+{
+	*this = ReinterpretCast<bool>(anyType);
+}
+
+template <typename AnyType>
+Buffer<bool>& Buffer<bool>::operator=(const Buffer<AnyType>& anyType)
+{
+	*this = ReinterpretCast<bool>(anyType);
+	return *this;
+}
+
 template<typename Iter>
 void Buffer<bool>::AppendBuf(Iter Begin, Iter End)
 {
@@ -145,7 +169,7 @@ void Buffer<bool>::AppendBuf(Iter Begin, Iter End)
 	static_assert(std::ranges::contiguous_range<decltype(range)>,
 		"vkLib::Buffer::SetBuf only accepts contiguous memory");
 
-	SetBuf<Iter>(Begin, End, mChunk.BufferHandles->ElemCount / ElemSize);
+	SetBuf<Iter>(Begin, End, mChunk.BufferHandles->BufferSize / ElemSize);
 }
 
 template<typename Iter>
@@ -188,7 +212,7 @@ void Buffer<bool>::SetBuf(Iter Begin, Iter End, size_t Offset)
 		CopyGPU(*mChunk.BufferHandles, stagingBuffer.GetNativeHandles(), copyRegion);
 	}
 
-	mChunk.BufferHandles->ElemCount = Count + Offset;
+	mChunk.BufferHandles->BufferSize = Count + Offset;
 }
 
 template <typename Iter>

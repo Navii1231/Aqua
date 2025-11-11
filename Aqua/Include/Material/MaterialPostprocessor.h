@@ -28,13 +28,10 @@ private:
 	std::vector<std::string> mBasicShaderTypes;
 
 private:
-	MAT_NAMESPACE::MaterialGraphPostprocessError ConstructError(MAT_NAMESPACE::MaterialPostprocessState state,
-		const Token& token, const std::string& errorString) const;
 
-	bool ImportSanityCheck(MAT_NAMESPACE::MaterialGraphPostprocessError& error, const Token& prevToken,
-		const Token& importKeyword,
-		const Token& shaderImport,
-		const Token& endLine) const;
+	MAT_NAMESPACE::MaterialGraphPostprocessError ConstructError(MAT_NAMESPACE::MaterialPostprocessState state, const Token& token, const Cursors& cursors, const std::string& errorString) const;
+
+	bool ImportSanityCheck(MAT_NAMESPACE::MaterialGraphPostprocessError& error, Lexer& lexer, const size_t prevIdx, const Token& importKeyword, const Token& shaderImport, const Token& endLine, const Cursors& cursors) const;
 
 	bool IsBasicShaderType(std::string_view type) const;
 	bool ValidVariableName(std::string_view varName) const;

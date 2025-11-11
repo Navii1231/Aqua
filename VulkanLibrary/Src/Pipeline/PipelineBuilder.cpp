@@ -4,34 +4,19 @@
 
 VK_BEGIN
 
-BasicPipeline Clone(Context ctx, const BasicPipeline& pipeline)
+BasicPipeline* Clone(Context ctx, const BasicPipeline* pipeline)
 {
-	auto bindPoint = pipeline.GetPipelineBindPoint();
-	auto pipelineBuilder = ctx.MakePipelineBuilder();
-
-	switch (bindPoint)
-	{
-	case vk::PipelineBindPoint::eGraphics:
-		return pipelineBuilder.BuildGraphicsPipeline<GraphicsPipeline>(pipeline.GetShader());
-	case vk::PipelineBindPoint::eCompute:
-		return pipelineBuilder.BuildComputePipeline<ComputePipeline>(pipeline.GetShader());
-	case vk::PipelineBindPoint::eRayTracingKHR:
-		_STL_VERIFY(false, "at cloning - pipeline unsupported yet");
-		return {};
-	default:
-		_STL_VERIFY(false, "cloning bad pipeline");
-		return {};
-	}
+	return pipeline->Clone(ctx);
 }
 
-ComputePipeline Clone(Context ctx, const ComputePipeline& pipeline)
+ComputePipeline* Clone(Context ctx, const ComputePipeline* pipeline)
 {
-	return ctx.MakePipelineBuilder().BuildComputePipeline<ComputePipeline>(pipeline);
+	return pipeline->Clone(ctx);
 }
 
-GraphicsPipeline Clone(Context ctx, const GraphicsPipeline& pipeline)
+GraphicsPipeline* Clone(Context ctx, const GraphicsPipeline* pipeline)
 {
-	return ctx.MakePipelineBuilder().BuildGraphicsPipeline<GraphicsPipeline>(pipeline);
+	return pipeline->Clone(ctx);
 }
 
 static std::unordered_map<vk::DynamicState, GraphicsDynamicStateFn> sGraphicsFn =

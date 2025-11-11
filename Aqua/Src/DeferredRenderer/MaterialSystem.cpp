@@ -200,13 +200,13 @@ void AQUA_NAMESPACE::MaterialSystem::BuildHyperSurfPipelines()
 	cache[TEMPLATE_POINT]->Name = TEMPLATE_POINT;
 	cache[TEMPLATE_POINT]->ParameterSet = {};
 	cache[TEMPLATE_POINT]->MatOp.GFX = MakeRef(mConfig->mPointPipeline);
-	cache[TEMPLATE_POINT]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eGraphics;
+	cache[TEMPLATE_POINT]->MatOp.Type = EXEC_NAMESPACE::OpType::eGraphics;
 	cache[TEMPLATE_POINT]->RendererPlatform = MAT_NAMESPACE::Platform::eLightingRaster;
 
 	cache[TEMPLATE_LINE]->Name = TEMPLATE_LINE;
 	cache[TEMPLATE_LINE]->ParameterSet = {};
 	cache[TEMPLATE_LINE]->MatOp.GFX = MakeRef(mConfig->mLinePipeline);
-	cache[TEMPLATE_LINE]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eGraphics;
+	cache[TEMPLATE_LINE]->MatOp.Type = EXEC_NAMESPACE::OpType::eGraphics;
 	cache[TEMPLATE_LINE]->RendererPlatform = MAT_NAMESPACE::Platform::eLightingRaster;
 }
 
@@ -222,7 +222,7 @@ void AQUA_NAMESPACE::MaterialSystem::BuildWireframePipeline()
 	cache[TEMPLATE_Wireframe]->Name = TEMPLATE_Wireframe;
 	cache[TEMPLATE_Wireframe]->ParameterSet = {};
 	cache[TEMPLATE_Wireframe]->MatOp.GFX = MakeRef(mConfig->mWireframePipeline);
-	cache[TEMPLATE_Wireframe]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eGraphics;
+	cache[TEMPLATE_Wireframe]->MatOp.Type = EXEC_NAMESPACE::OpType::eGraphics;
 	cache[TEMPLATE_Wireframe]->RendererPlatform = MAT_NAMESPACE::Platform::eLightingRaster;
 }
 
@@ -242,7 +242,7 @@ void AQUA_NAMESPACE::MaterialSystem::BuildPBRPipeline()
 
 	mConfig->mCache[TEMPLATE_PBR]->CmpCreateInfo = createInfo;
 	mConfig->mCache[TEMPLATE_PBR]->MatOp = instance.GetMaterial();
-	mConfig->mCache[TEMPLATE_PBR]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eCompute;
+	mConfig->mCache[TEMPLATE_PBR]->MatOp.Type = EXEC_NAMESPACE::OpType::eCompute;
 	mConfig->mCache[TEMPLATE_PBR]->Name = TEMPLATE_PBR;
 	mConfig->mCache[TEMPLATE_PBR]->ParameterSet = instance.GetInfo()->ShaderParameters;
 	mConfig->mCache[TEMPLATE_PBR]->ParStride = instance.GetInfo()->Stride;
@@ -270,7 +270,7 @@ void AQUA_NAMESPACE::MaterialSystem::BuildDiffusePipeline()
 
 	mConfig->mCache[TEMPLATE_Diffuse]->CmpCreateInfo = createInfo;
 	mConfig->mCache[TEMPLATE_Diffuse]->MatOp = instance.GetMaterial();
-	mConfig->mCache[TEMPLATE_Diffuse]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eCompute;
+	mConfig->mCache[TEMPLATE_Diffuse]->MatOp.Type = EXEC_NAMESPACE::OpType::eCompute;
 	mConfig->mCache[TEMPLATE_Diffuse]->Name = TEMPLATE_Diffuse;
 	mConfig->mCache[TEMPLATE_Diffuse]->ParameterSet = instance.GetInfo()->ShaderParameters;
 	mConfig->mCache[TEMPLATE_Diffuse]->ParStride = instance.GetInfo()->Stride;
@@ -295,7 +295,7 @@ void AQUA_NAMESPACE::MaterialSystem::BuildGlossyPipeline()
 
 	mConfig->mCache[TEMPLATE_Glossy]->CmpCreateInfo = createInfo;
 	mConfig->mCache[TEMPLATE_Glossy]->MatOp = instance.GetMaterial();
-	mConfig->mCache[TEMPLATE_Glossy]->MatOp.States.Type = EXEC_NAMESPACE::OpType::eCompute;
+	mConfig->mCache[TEMPLATE_Glossy]->MatOp.Type = EXEC_NAMESPACE::OpType::eCompute;
 	mConfig->mCache[TEMPLATE_Glossy]->Name = TEMPLATE_Glossy;
 	mConfig->mCache[TEMPLATE_Glossy]->ParameterSet = instance.GetInfo()->ShaderParameters;
 	mConfig->mCache[TEMPLATE_Glossy]->ParStride = instance.GetInfo()->Stride;

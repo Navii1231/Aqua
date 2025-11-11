@@ -25,8 +25,7 @@ private:
 	Core::Ref<Core::DescriptorSetAllocatorData> mData;
 	Core::DescriptorPoolBuilder mBuilder;
 
-	DescriptorSetAllocator(
-		Core::Ref<Core::DescriptorSetAllocatorData> data, Core::DescriptorPoolBuilder builder)
+	DescriptorSetAllocator(Core::Ref<Core::DescriptorSetAllocatorData> data, Core::DescriptorPoolBuilder builder)
 		: mData(data), mBuilder(builder) {}
 	
 	friend class ::VK_NAMESPACE::DescriptorPoolManager;

@@ -18,7 +18,7 @@ struct MaterialTemplate
 {
 	std::string Name;
 	
-	MAT_NAMESPACE::Material MatOp;
+	MAT_NAMESPACE::Material MatOp{EXEC_NAMESPACE::NodeID(-1)};
 	MAT_NAMESPACE::ShaderParameterSet ParameterSet;
 	uint32_t ParStride;
 	DeferGFXMaterialCreateInfo GFXCreateInfo;

@@ -33,7 +33,7 @@ public:
 	void TransferOwnership(uint32_t DstQueueFamilyIndex) const;
 	void TransferOwnership(vk::QueueFlagBits optimizedCaps) const;
 
-	void Clear() { mChunk.BufferHandles->ElemCount = 0; }
+	void Clear() { mChunk.BufferHandles->BufferSize = 0; }
 
 	bool Empty() const { return GetSize() == 0; }
 
@@ -43,15 +43,16 @@ public:
 	const Core::Buffer& GetNativeHandles() const { return *mChunk.BufferHandles; }
 	Core::BufferConfig GetBufferConfig() const { return mChunk.BufferHandles->Config; }
 
-	size_t GetSize() const { return mChunk.BufferHandles->ElemCount; }
-	vk::DeviceSize GetDeviceSize() const { return mChunk.BufferHandles->ElemCount * sizeof(T); }
-	size_t GetCapacity() const { return mChunk.BufferHandles->Config.ElemCount; }
+	size_t GetSize() const { return mChunk.BufferHandles->BufferSize / sTypeSize; }
+	vk::DeviceSize GetDeviceSize() const { return mChunk.BufferHandles->BufferSize; }
+	size_t GetCapacity() const { return mChunk.BufferHandles->Config.DeviceSize / sTypeSize; }
 
 	void Reserve(size_t NewCap);
 	void Resize(size_t NewSize);
 	void ShrinkToFit();
 
 	explicit operator bool() const { return static_cast<bool>(mChunk.BufferHandles); }
+	constexpr static vk::DeviceSize sTypeSize = sizeof(T);
 
 private:
 	Core::BufferResource mChunk;
@@ -68,6 +69,9 @@ private:
 
 	template <typename _Rsc>
 	friend _Rsc Clone(Context, const _Rsc&);
+
+	template <typename T1, typename T2>
+	friend Buffer<T1> ReinterpretCast(Buffer<T2> buffer);
 
 private:
 	// Helper Functions...
@@ -146,6 +150,18 @@ void CopyBuffer(Buffer<T>& DstBuf, const Buffer<T>& SrcBuf)
 	CopyBufferRegions<T>(DstBuf, SrcBuf, std::vector<vk::BufferCopy>({ CopyRegion }) );
 }
 
+template <typename T1, typename T2>
+Buffer<T1> ReinterpretCast(Buffer<T2> buffer)
+{
+	Buffer<T1> casted{};
+	casted.mCommandPools = buffer.mCommandPools;
+	casted.mWorkingClass = buffer.mWorkingClass;
+
+	casted.mChunk = buffer.mChunk;
+
+	return casted;
+}
+
 template<typename T>
 template <typename Iter>
 void Buffer<T>::FetchMemory(Iter Begin, Iter End, size_t Offset)
@@ -200,7 +216,7 @@ void Buffer<T>::UnmapMemory() const
 	vk::MappedMemoryRange range{};
 	range.setMemory(mChunk.BufferHandles->Memory);
 	range.setOffset(0);
-	range.setSize(mChunk.BufferHandles->ElemCount);
+	range.setSize(mChunk.BufferHandles->BufferSize);
 
 	mChunk.Device->flushMappedMemoryRanges(range);
 }
@@ -257,7 +273,7 @@ bool Buffer<T>::IsMappable()
 template<typename T>
 void Buffer<T>::Reserve(size_t NewCap)
 {
-	if (NewCap > mChunk.BufferHandles->Config.ElemCount)
+	if (NewCap > mChunk.BufferHandles->Config.DeviceSize / sTypeSize)
 		ScaleCapacityWithoutLoss(NewCap);
 }
 
@@ -265,23 +281,21 @@ template<typename T>
 void Buffer<T>::Resize(size_t NewSize)
 {
 	Reserve(NewSize);
-	mChunk.BufferHandles->ElemCount = NewSize;
+	mChunk.BufferHandles->BufferSize = NewSize * sTypeSize;
 }
 
 template <typename T>
 void VK_NAMESPACE::Buffer<T>::ShrinkToFit()
 {
-	if (mChunk.BufferHandles->ElemCount != mChunk.BufferHandles->Config.ElemCount)
-		Resize(mChunk.BufferHandles->ElemCount);
+	if (mChunk.BufferHandles->BufferSize != mChunk.BufferHandles->Config.DeviceSize)
+		Resize(mChunk.BufferHandles->BufferSize / sTypeSize);
 }
 
 template<typename T>
 void Buffer<T>::ScaleCapacity(size_t NewSize)
 {
-	mChunk.BufferHandles->Config.ElemCount = NewSize;
+	mChunk.BufferHandles->Config.BufferSize = NewSize;
 	Core::Buffer NewBuffer = Core::Utils::CreateBuffer(mChunk.BufferHandles->Config);
-
-	auto Device = mChunk.Context;
 
 	mChunk.BufferHandles.SetValue(NewBuffer);
 }
@@ -289,17 +303,17 @@ void Buffer<T>::ScaleCapacity(size_t NewSize)
 template<typename T>
 void Buffer<T>::ScaleCapacityWithoutLoss(size_t NewSize)
 {
-	mChunk.BufferHandles->Config.ElemCount = NewSize;
+	mChunk.BufferHandles->Config.DeviceSize = NewSize * sTypeSize;
 	Core::Buffer NewBuffer = Core::Utils::CreateBuffer(mChunk.BufferHandles->Config);
 
 	vk::BufferCopy CopyRegion{};
-	CopyRegion.setSize(mChunk.BufferHandles->ElemCount * sizeof(T));
+	CopyRegion.setSize(mChunk.BufferHandles->BufferSize);
 
 	CopyGPU(NewBuffer, *mChunk.BufferHandles, CopyRegion);
 
 	auto Device = mChunk.Device;
 
-	NewBuffer.ElemCount = mChunk.BufferHandles->ElemCount;
+	NewBuffer.BufferSize = mChunk.BufferHandles->BufferSize;
 	mChunk.BufferHandles.SetValue(NewBuffer);
 }
 
@@ -312,7 +326,7 @@ void Buffer<T>::AppendBuf(Iter Begin, Iter End)
 	static_assert(std::ranges::contiguous_range<decltype(range)>,
 		"vkLib::Buffer::SetBuf only accepts contiguous memory");
 
-	SetBuf<Iter>(Begin, End, mChunk.BufferHandles->ElemCount);
+	SetBuf<Iter>(Begin, End, mChunk.BufferHandles->BufferSize / sTypeSize);
 }
 
 template<typename T>
@@ -353,7 +367,7 @@ void Buffer<T>::SetBuf(Iter Begin, Iter End, size_t Offset)
 		CopyGPU(*mChunk.BufferHandles, stagingBuffer.GetNativeHandles(), copyRegion);
 	}
 
-	mChunk.BufferHandles->ElemCount = Count + Offset;
+	mChunk.BufferHandles->BufferSize = (Count + Offset) * sTypeSize;
 }
 
 template <typename T>
@@ -449,7 +463,7 @@ Buffer<T> Buffer<T>::StageBuffer(size_t count)
 
 	Core::BufferConfig hostConfig = mChunk.BufferHandles->Config;
 	hostConfig.MemProps = vk::MemoryPropertyFlagBits::eHostCoherent;
-	hostConfig.ElemCount = count;
+	hostConfig.DeviceSize = count * sTypeSize;
 
 	auto device = mChunk.Device;
 	
@@ -469,7 +483,7 @@ template<typename T>
 void Buffer<T>::MakeHollow()
 {
 	mChunk.BufferHandles.Reset();
-	mChunk.BufferHandles->ElemCount = 0;
+	mChunk.BufferHandles->BufferSize = 0;
 }
 
 VK_END

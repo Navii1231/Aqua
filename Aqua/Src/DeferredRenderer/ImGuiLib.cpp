@@ -217,7 +217,7 @@ vk::ResultValue<uint32_t> AQUA_NAMESPACE::ImGuiLib::FrameRenderImpl(ImDrawData* 
 
 	mImGuiCommandBuffer.end();
 
-	auto submission = mRenderingWorker.Dispatch(*mImGuiSignal, mImGuiCommandBuffer);
+	auto submission = mRenderingWorker.Enqueue(*mImGuiSignal, mImGuiCommandBuffer);
 
 	// copying and presenting the image
 	auto resultValue = mSwapchain->AcquireNextFrame();

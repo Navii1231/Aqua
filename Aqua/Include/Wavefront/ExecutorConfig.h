@@ -8,13 +8,6 @@
 AQUA_BEGIN
 PH_BEGIN
 
-#define RAY_GEN_NODE                         "ray_gen"
-#define RAY_INTERSECTION_TEST_NODE           "inter_test"
-#define RAY_MATERIAL_NODE                    "mat._"
-#define RAY_EMPTY_MATERIAL_NODE              "empty_mat"
-#define RAY_CALC_LUMINANCE_NODE              "calc_lumi"
-#define RAY_POST_PROCESS_NODE                "post_proc"
-
 using MaterialPipelineList = std::vector<MaterialInstance>;
 
 struct ExecutionPipelines

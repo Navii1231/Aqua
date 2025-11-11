@@ -4,7 +4,7 @@
 #include "../Renderable/Renderable.h"
 #include "../Renderable/RenderableBuilder.h"
 #include "../../Material/MaterialInstance.h"
-#include "../../Execution/GraphBuilder.h"
+#include "../../Execution/GenericDraft.h"
 
 #include "../Renderable/BasicRenderables.h"
 #include "Environment.h"
@@ -89,10 +89,10 @@ private:
 	void AddMaterial(const RenderableSubmitInfo& submitInfo, uint32_t matIdx);
 
 
-	void ExecuteLightingMaterial(vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op, const  RenderableSubmitInfo& instance, uint32_t matIdx);
-	void ExecuteForwardMaterial(vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& instance, uint32_t matIdx);
-	void UpdateLightingMaterial(EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo);
-	void UpdateForwardMaterial(uint32_t matIdx, EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo);
+	void ExecuteLightingMaterial(vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op, const  RenderableSubmitInfo& instance, uint32_t matIdx);
+	void ExecuteForwardMaterial(vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& instance, uint32_t matIdx);
+	void UpdateLightingMaterial(EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo);
+	void UpdateForwardMaterial(uint32_t matIdx, EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo);
 
 	void SetupVertexBindings();
 	void SetupVertexFactory();

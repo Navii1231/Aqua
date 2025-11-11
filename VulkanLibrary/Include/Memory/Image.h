@@ -42,8 +42,8 @@ public:
 	void SetSampler(Core::Ref<vk::Sampler> sampler) { mChunk->Sampler = sampler; }
 
 	// Only base mipmap level is supported right now!
-	std::vector<vk::ImageSubresourceRange> GetSubresourceRanges() const;
-	std::vector<vk::ImageSubresourceLayers> GetSubresourceLayers() const;
+	VKLIB_API std::vector<vk::ImageSubresourceRange> GetSubresourceRanges() const;
+	VKLIB_API std::vector<vk::ImageSubresourceLayers> GetSubresourceLayers() const;
 
 	VKLIB_API ImageView GetIdentityImageView() const;
 	VKLIB_API GenericBuffer GetImageBuffer() const;
@@ -65,37 +65,37 @@ private:
 
 	friend class Swapchain;
 
-	friend void RecordBlitImages(vk::CommandBuffer commandBuffer, Image& Dst,
+	friend VKLIB_API void RecordBlitImages(vk::CommandBuffer commandBuffer, Image& Dst,
 		vk::ImageLayout dstLayout, const Image& Src,
 		vk::ImageLayout srcLayout, ImageBlitInfo blitInfo);
 
-	friend Image Clone(Context, const Image&);
-	friend ImageView Clone(Context, const ImageView&);
+	friend VKLIB_API Image Clone(Context, const Image&);
+	friend VKLIB_API ImageView Clone(Context, const ImageView&);
 private:
 	// Helper methods...
 
-	void RecordTransitionLayoutInternal(vk::ImageLayout NewLayout, vk::PipelineStageFlags usageStage, 
+	VKLIB_API void RecordTransitionLayoutInternal(vk::ImageLayout NewLayout, vk::PipelineStageFlags usageStage, 
 		vk::ImageLayout oldLayout, vk::PipelineStageFlags oldStages,
 		vk::CommandBuffer CmdBuffer, vk::QueueFlags QueueCaps) const;
 
-	void RecordBlitInternal(const ImageBlitInfo& imageBlitInfo, vk::ImageLayout dstLayout, 
+	VKLIB_API void RecordBlitInternal(const ImageBlitInfo& imageBlitInfo, vk::ImageLayout dstLayout, 
 		const Image& src, vk::ImageLayout srcLayout, vk::CommandBuffer CmdBuffer) const;
 
-	void CopyFromImage(Core::Image& DstImage, const Core::Image& SrcImage,
+	VKLIB_API void CopyFromImage(Core::Image& DstImage, const Core::Image& SrcImage,
 		const vk::ArrayProxy<vk::ImageCopy>& CopyRegions) const;
 
-	void CopyFromBuffer(Core::Image& DstImage, const Core::Buffer& SrcBuffer,
+	VKLIB_API void CopyFromBuffer(Core::Image& DstImage, const Core::Buffer& SrcBuffer,
 		const vk::ArrayProxy<vk::BufferImageCopy>& CopyRegions) const;
 
-	void CopyToBuffer(Core::Image& srcImage, const Core::Buffer& dstBuf, const vk::ArrayProxy<vk::BufferImageCopy>& copyRegions) const;
+	VKLIB_API void CopyToBuffer(Core::Image& srcImage, const Core::Buffer& dstBuf, const vk::ArrayProxy<vk::BufferImageCopy>& copyRegions) const;
 
-	void ReleaseImage(uint32_t dstQueueFamily) const;
-	void AcquireImage(uint32_t dstQueueFamily) const;
+	VKLIB_API void ReleaseImage(uint32_t dstQueueFamily) const;
+	VKLIB_API void AcquireImage(uint32_t dstQueueFamily) const;
 
-	ImageBlitInfo CheckBounds(const ImageBlitInfo& imageBlitInfo, const glm::uvec2& srcSize) const;
+	VKLIB_API ImageBlitInfo CheckBounds(const ImageBlitInfo& imageBlitInfo, const glm::uvec2& srcSize) const;
 
 	// Make hollow instance...
-	void MakeHollow();
+	VKLIB_API void MakeHollow();
 };
 
 template <typename T>
@@ -113,7 +113,7 @@ void VK_NAMESPACE::Image::CopyBufferData(const Buffer<T>& buffer)
 	CopyFromBuffer(mChunk->ImageHandles, buffer.GetNativeHandles(), CopyRegion);
 }
 
-void RecordBlitImages(vk::CommandBuffer commandBuffer, Image& Dst,
+VKLIB_API void RecordBlitImages(vk::CommandBuffer commandBuffer, Image& Dst,
 	vk::ImageLayout dstLayout, const Image& Src, 
 	vk::ImageLayout srcLayout, ImageBlitInfo blitInfo);
 

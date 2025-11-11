@@ -73,21 +73,22 @@ struct Resource
 };
 
 /*
-* The #Material is an #Operation, the part of the shader that can run on the GPU
+* A #Material is essentially a #GenericNode instance, a part of the shader that can run on the GPU
 * It will be hidden in the #MaterialInstance class in a way that the client can't
 * modify it. Same material can be shared across different set of 
 * #MaterialInstance's with different parameter values, thus encouraging 
 * pipeline caching and reducing the need to create a pipeline multiple times.
 */ 
-using Material = ::AQUA_NAMESPACE::EXEC_NAMESPACE::Operation;
+using Material = ::AQUA_NAMESPACE::EXEC_NAMESPACE::GenericNode;
 
 /*
 * A #shader_parameter represent custom values set by the user that can affect
 * the shading in real time. In a handwritten shader, the #parser will see them in the form of
-* @([#basic_type].[#name]), where [#basic_type] is any basic shader type such as #int, 
-* #uint, #float, #vec3, #mat2 etc, [#name] is the parameter name and [#idx] is the parameter
-* index, it can starts from zero can extend to as much as the #GLSL/#HLSL struct definitions can hold
-* When the #parser reads the whole text, a corresponding struct #ShaderParameterSet will be generated 
+* #basic_type.#name, where #basic_type is any basic shader type such as #int, 
+* #uint, #float, #vec3, #mat2 so on and so forth, and [#name] is the parameter name while [#idx] 
+* is the parameter index, it can starts from zero can extend to as much as the #GLSL/#HLSL struct 
+* definitions can hold. When the #parser reads the whole text, a corresponding struct 
+* #ShaderParameterSet will be generated 
 * added for the shader
 * 
 * The definition produced in the shader side may look like

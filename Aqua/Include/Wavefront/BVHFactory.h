@@ -44,13 +44,13 @@ private:
 public:
 	struct DefaultSplitFn
 	{
-		static SplitFunction sObjectSplit;
-		static SplitFunction sSpatialSplit;
-		static SplitFunction sSAH;
+		AQUA_API static SplitFunction sObjectSplit;
+		AQUA_API static SplitFunction sSpatialSplit;
+		AQUA_API static SplitFunction sSAH;
 	};
 
 private:
-	void Clear();
+	AQUA_API void Clear();
 
 	template <typename Iter>
 	void SetVertices(Iter begin, Iter end);
@@ -58,9 +58,8 @@ private:
 	template <typename Iter>
 	void SetFaces(Iter begin, Iter end);
 
-
-	void SplitRecursive(Node& parentNode, int depth);
-	void EncloseIntoBoundingBox(Node& node);
+	AQUA_API void SplitRecursive(Node& parentNode, int depth);
+	AQUA_API void EncloseIntoBoundingBox(Node& node);
 
 	// vec3 and axis idx
 	std::pair<float, int> GetOptimalSplit(const Node& box);

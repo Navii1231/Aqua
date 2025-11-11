@@ -19,7 +19,7 @@ struct RendererMaterialInstanceData
 
 	// custom execution function for forward passes
 	EXEC_NAMESPACE::OpFn mExecutionFn;
-	EXEC_NAMESPACE::OpUpdateFn mUpdateFn = [](EXEC_NAMESPACE::Operation&) {}; // empty func by default
+	EXEC_NAMESPACE::OpUpdateFn mUpdateFn = [](EXEC_NAMESPACE::GenericNode*) {}; // empty func by default
 
 	bool mFeedingModelMatrices = false;
 	bool mFeedingCameraInfo = false;

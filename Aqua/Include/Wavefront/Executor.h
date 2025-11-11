@@ -1,7 +1,7 @@
 #pragma once
 #include "ExecutorConfig.h"
 
-#include "../Execution/GraphBuilder.h"
+#include "../Execution/GenericDraft.h"
 
 AQUA_BEGIN
 PH_BEGIN
@@ -93,16 +93,16 @@ private:
 private:
 	Executor(const ExecutorCreateInfo& createInfo);
 
-	void ConnectRayGenToTrace(const std::vector<std::string>& traceInput);
-	void ConnectTraces(uint32_t leading, uint32_t dependent, const std::vector<std::string>& traceInputs);
-	void ConnectTraceToPostProcess(const std::vector<std::string>& postInputs);
+	void ConnectRayGenToTrace(const EXEC_NAMESPACE::Wavefront& traceInput);
+	void ConnectTraces(uint32_t leading, uint32_t dependent, const EXEC_NAMESPACE::Wavefront& traceInputs);
+	void ConnectTraceToPostProcess(const EXEC_NAMESPACE::Wavefront& postInputs);
 
 	void JoinGraphs();
 	void SeparateGraphs();
 
-	void ConstructTraceExec(EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& outputs);
-	void ConstructRayGenExec(EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& outputs);
-	void ConstructPostProcessExec(EXEC_NAMESPACE::GraphBuilder& builder, std::vector<std::string>& inputs);
+	void ConstructTraceExec(EXEC_NAMESPACE::Wavefront& outputs);
+	void ConstructRayGenExec(EXEC_NAMESPACE::Wavefront& outputs);
+	void ConstructPostProcessExec(EXEC_NAMESPACE::Wavefront& inputs);
 
 	uint32_t GetRandomNumber();
 
@@ -124,7 +124,7 @@ private:
 
 	void UpdateSceneInfo();
 
-	void InvalidateMaterialData();
+	AQUA_API void InvalidateMaterialData();
 
 private:
 	void AssignMaterialsResources(MaterialInstance& instance, const SessionInfo& TracingSession);

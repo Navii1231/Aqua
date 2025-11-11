@@ -41,6 +41,8 @@ public:
 	virtual vk::PipelineBindPoint GetPipelineBindPoint() const override { return vk::PipelineBindPoint::eCompute; }
 	virtual PipelineLayoutData GetPipelineLayoutData() const override { return mHandles->LayoutData; }
 
+	virtual BasicComputePipeline* Clone(vkLib::Context ctx) const override;
+
 	glm::uvec3 GetWorkGroupSize() const { return mHandles->WorkGroupSize; }
 
 	explicit operator bool() const { return static_cast<bool>(mHandles); }
@@ -50,8 +52,7 @@ private:
 
 	friend class PipelineBuilder;
 
-	template <typename _Rsc>
-	_Rsc Clone(Context ctx, const _Rsc& rsc);
+	BasicComputePipeline* Clone(Context ctx, const BasicComputePipeline* pipeline);
 };
 
 using ComputePipeline = BasicComputePipeline<BasicPipeline>;
@@ -85,6 +86,12 @@ template<typename BasePipeline>
 inline void BasicComputePipeline<BasePipeline>::End() const
 {
 	this->EndPipeline();
+}
+
+template <typename BasePipeline>
+BasicComputePipeline<BasePipeline>* VK_NAMESPACE::BasicComputePipeline<BasePipeline>::Clone(vkLib::Context ctx) const
+{
+	return reinterpret_cast<BasicComputePipeline*>(reinterpret_cast<const BasePipeline*>(this)->Clone(ctx));
 }
 
 VK_END

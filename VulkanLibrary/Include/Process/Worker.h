@@ -20,17 +20,17 @@ class Worker
 public:
 	Worker() = default;
 
-	VKLIB_API uint32_t Dispatch(vk::ArrayProxy<vk::SubmitInfo> submitInfos,
+	VKLIB_API uint32_t Enqueue(vk::ArrayProxy<vk::SubmitInfo> submitInfos,
 		std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max()) const;
 
-	VKLIB_API uint32_t Dispatch(vk::ArrayProxy<vk::CommandBuffer> cmdBuffer,
+	VKLIB_API uint32_t Enqueue(vk::ArrayProxy<vk::CommandBuffer> cmdBuffer,
 		std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max()) const;
 
-	VKLIB_API uint32_t Dispatch(vk::ArrayProxy<vk::Semaphore> signalSemaphores,
+	VKLIB_API uint32_t Enqueue(vk::ArrayProxy<vk::Semaphore> signalSemaphores,
 		vk::ArrayProxy<vk::CommandBuffer> buffers,
 		std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max()) const;
 
-	VKLIB_API uint32_t Dispatch(vk::ArrayProxy<QueueWaitingPoint> waitPoint,
+	VKLIB_API uint32_t Enqueue(vk::ArrayProxy<QueueWaitingPoint> waitPoint,
 		vk::ArrayProxy<vk::Semaphore> signalSemaphores, 
 		vk::ArrayProxy<vk::CommandBuffer> buffers,
 		std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max()) const;
@@ -60,7 +60,7 @@ private:
 	vkLib::Core::Ref<vk::Device> mDevice;
 
 	friend class ::VK_NAMESPACE::WorkingClass;
-	friend vk::Result VK_NAMESPACE::WaitForWorkers(vk::ArrayProxy<Worker> workers, 
+	friend VKLIB_API vk::Result VK_NAMESPACE::WaitForWorkers(vk::ArrayProxy<Worker> workers, 
 		bool waitAll, std::chrono::nanoseconds timeout);
 
 private:

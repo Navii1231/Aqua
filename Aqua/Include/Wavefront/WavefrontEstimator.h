@@ -1,7 +1,7 @@
 #pragma once
 #include "Executor.h"
 
-#include "../Execution/GraphBuilder.h"
+#include "../Execution/GenericDraft.h"
 
 #include "SortRecorder.h"
 #include "RayGenerationPipeline.h"

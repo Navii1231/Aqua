@@ -71,8 +71,6 @@ struct RendererConfig
 	EXEC_NAMESPACE::Ensemble mRenderingPipeline; // combines front, shading and backend
 	EXEC_NAMESPACE::GraphList mDrawList;
 
-	EXEC_NAMESPACE::GraphBuilder mRenderGraphBuilder;
-
 	DeferredPipeline mDeferredPipeline;
 	SkyboxPipeline mSkyboxPipeline;
 
@@ -115,24 +113,21 @@ void SetFeatures(RendererFeatureFlags flags, vkLib::Buffer<FeaturesEnabled> enab
 	enabled.SetBuf(features.begin(), features.end());
 }
 
-void AddMaterialsIntoExecutionGraph(EXEC_NAMESPACE::GraphBuilder& builder,
-	const std::vector<Core::MaterialInfo>& materials, const std::string& materialPrefix)
+void AddMaterialsIntoExecutionGraph(EXEC_NAMESPACE::GenericDraft& builder,
+	const std::vector<Core::MaterialInfo>& materials, EXEC_NAMESPACE::NodeID& materialIdx, EXEC_NAMESPACE::NodeID offset)
 {
-	uint32_t materialIdx = 0;
-
 	for (const auto& rawMaterial : materials)
 	{
-		std::string instanceName = materialPrefix + std::to_string(materialIdx++);
-		std::string nextInstance = materialPrefix + std::to_string(materialIdx);
+		builder.SubmitOperation(materialIdx + offset);
 
-		builder[instanceName] = rawMaterial.Op;
-		builder[instanceName].OpID = Core::MaterialInfo::sMatTypeID;
-
-		if (materialIdx < materials.size())
+		if (materialIdx < materials.size() - 1)
 		{
-			builder.InsertDependency(instanceName,
-				nextInstance, vk::PipelineStageFlagBits::eFragmentShader);
+			builder.Connect(materialIdx + offset,
+				materialIdx + offset + 1, vk::PipelineStageFlagBits::eFragmentShader);
+
 		}
+
+		materialIdx++;
 	}
 }
 
@@ -189,8 +184,6 @@ void AQUA_NAMESPACE::Renderer::SetCtx(vkLib::Context ctx)
 
 	mConfig->mCmdAlloc = ctx.CreateCommandPools()[0];
 	mConfig->mDrawWorkers = mConfig->mCmdAlloc.CreateExecUnits(16);
-
-	mConfig->mRenderGraphBuilder.SetCtx(ctx);
 
 	SetupFeatureInfos();
 
@@ -337,7 +330,7 @@ void AQUA_NAMESPACE::Renderer::InsertPreEventDependency(vkLib::Core::Ref<vk::Sem
 		return;
 
 	EXEC_NAMESPACE::DependencyInjection inInj{};
-	inInj.Connect(graphList.front()->Name);
+	inInj.Connect(graphList.front()->NodeId);
 	inInj.SetSignal(signal);
 	inInj.SetWaitPoint({});
 
@@ -353,7 +346,7 @@ void AQUA_NAMESPACE::Renderer::InsertPostEventDependency(vkLib::Core::Ref<vk::Se
 		return;
 
 	EXEC_NAMESPACE::DependencyInjection outInj{};
-	outInj.Connect(graphList.back()->Name);
+	outInj.Connect(graphList.back()->NodeId);
 	outInj.SetSignal(signal);
 	outInj.SetWaitPoint({});
 
@@ -416,11 +409,9 @@ void AQUA_NAMESPACE::Renderer::PrepareMaterialNetwork()
 	mConfig->mFrontEnd.SetModels(mConfig->mRenderableManagerie.GetModels());
 	mConfig->mBackEnd.SetModels(mConfig->mRenderableManagerie.GetModels());
 
-	PrepareShadingNetwork();
+	auto shadingNetwork = PrepareShadingNetwork();
 
-	auto shadingNetwork = *mConfig->mRenderGraphBuilder.GenerateExecutionGraph({ "SkyboxStage" });
-
-	mConfig->mRenderingPipeline = EXEC_NAMESPACE::Ensemble::Flatten(EXEC_NAMESPACE::Ensemble::MakeSeq({ mConfig->mFrontEnd.CreateGraph(), shadingNetwork, mConfig->mBackEnd.CreateGraph() }));
+	mConfig->mRenderingPipeline = EXEC_NAMESPACE::Ensemble::Flatten(EXEC_NAMESPACE::Ensemble::MakeSeq(mConfig->mCtx, { mConfig->mFrontEnd.CreateGraph(), shadingNetwork, mConfig->mBackEnd.CreateGraph() }));
 
 	mConfig->mDrawList = mConfig->mRenderingPipeline.SortEntries();
 
@@ -562,25 +553,58 @@ void AQUA_NAMESPACE::Renderer::UpdateRenderableManagerie()
 		mConfig->mEnv, mConfig->mShadingbuffer, mConfig->mMaterialSystem);
 }
 
-void AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
+Aqua::Exec::Graph AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 {
 	// TODO: reading the required geometry resources from the materials
 	// and producing the corresponding g buffers and mapping them to correct lighting passes
 
+	EXEC_NAMESPACE::NodeID shadingIdx = 0;
+	uint32_t matCount = 0;
+
 	auto config = mConfig;
 
-	mConfig->mRenderGraphBuilder.Clear();
+	EXEC_NAMESPACE::GenericDraft draft(mConfig->mCtx);
+
+	draft.Clear();
+
+	draft.SubmitOperation(0);
+	draft.SubmitOperation(1);
+
+	auto forwardIdxBegin = shadingIdx + 2;
+	AddMaterialsIntoExecutionGraph(draft, mConfig->mRenderableManagerie.GetForwardMaterials(), shadingIdx, 2);
+
+	auto deferIdxBegin = shadingIdx + 2;
+	AddMaterialsIntoExecutionGraph(draft, mConfig->mRenderableManagerie.GetDeferredMaterials(), shadingIdx, 2);
+
+	LinkShaderExecutionGraphs(draft, deferIdxBegin, shadingIdx);
+
+	// the sky box
+	draft.SubmitOperation(shadingIdx + 2);
+
+	auto graph = *draft.Construct({ shadingIdx + 2 });
+
+	for (const auto& rawMaterial : mConfig->mRenderableManagerie.GetForwardMaterials())
+	{
+		graph.InsertOperation(mConfig->mCtx, forwardIdxBegin, rawMaterial.Op);
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[forwardIdxBegin++]).OpID = Core::MaterialInfo::sMatTypeID;
+	}
+
+	for (const auto& rawMaterial : mConfig->mRenderableManagerie.GetDeferredMaterials())
+	{
+		graph.InsertOperation(mConfig->mCtx, deferIdxBegin, rawMaterial.Op);
+		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[deferIdxBegin++]).OpID = Core::MaterialInfo::sMatTypeID;
+	}
 
 	// todo: a bit inefficient since the geometry is relatively fixed for each material
-	mConfig->mRenderGraphBuilder.InsertPipelineOp("GBufferStage", mConfig->mDeferredPipeline);
-	mConfig->mRenderGraphBuilder["GBufferStage"].OpID = RendererConfig::sGBufferID;
+	graph.InsertPipeOp(0, mConfig->mDeferredPipeline);
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).OpID = RendererConfig::sGBufferID;
 
-	mConfig->mRenderGraphBuilder["GBufferStage"].Fn =
-		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::Operation& op)
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).Fn =
+		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::GenericNode* op)
 	{
 		EXEC_NAMESPACE::CBScope executioner(cmds);
 
-		auto& pipeline = *op.GFX;
+		auto& pipeline = *op->GFX;
 
 		pipeline.Begin(cmds);
 
@@ -590,9 +614,9 @@ void AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 		pipeline.End();
 	};
 
-	mConfig->mRenderGraphBuilder["GBufferStage"].UpdateFn = [config](EXEC_NAMESPACE::Operation& op)
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
 	{
-		auto& pipeline = *reinterpret_cast<DeferredPipeline*>(GetRefAddr(op.GFX));
+		auto& pipeline = *reinterpret_cast<DeferredPipeline*>(GetRefAddr(op->GFX));
 
 		pipeline.SetClearDepthStencilValues(1.0f, 0);
 
@@ -612,35 +636,25 @@ void AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 		pipeline.UpdateModels(config->mRenderableManagerie.GetModels());
 	};
 
-	mConfig->mRenderGraphBuilder["ClearBuffers"].Fn = [this](vk::CommandBuffer buffer,
-		const EXEC_NAMESPACE::Operation& op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(buffer);
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[1]).Fn = [this](vk::CommandBuffer buffer,
+		const EXEC_NAMESPACE::GenericNode* op)
+		{
+			EXEC_NAMESPACE::CBScope executioner(buffer);
 
-		mConfig->mColorClear(buffer, mConfig->mShadingbuffer.GetColorAttachments().front(), { 0.0f, 1.0f, 0.0f, 0.0f });
-	};
+			mConfig->mColorClear(buffer, mConfig->mShadingbuffer.GetColorAttachments().front(), { 0.0f, 1.0f, 0.0f, 0.0f });
+		};
 
-	std::string fMatPrefix = "fMat_";
-	std::string deferPrefix = "DeferMat_";
-	uint32_t materialIdx = 0;
-	uint32_t matCount = 0;
+	graph.InsertPipeOp(shadingIdx + 2, mConfig->mSkyboxPipeline);
 
-	AddMaterialsIntoExecutionGraph(mConfig->mRenderGraphBuilder, mConfig->mRenderableManagerie.GetForwardMaterials(), fMatPrefix);
-	AddMaterialsIntoExecutionGraph(mConfig->mRenderGraphBuilder, mConfig->mRenderableManagerie.GetDeferredMaterials(), deferPrefix);
-
-	LinkShaderExecutionGraphs(fMatPrefix, deferPrefix);
-
-	mConfig->mRenderGraphBuilder.InsertPipelineOp("SkyboxStage", mConfig->mSkyboxPipeline);
-
-	mConfig->mRenderGraphBuilder["SkyboxStage"].Fn =
-		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::Operation& op)
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[shadingIdx + 2]).Fn =
+		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::GenericNode* op)
 	{
 		EXEC_NAMESPACE::CBScope executioner(cmds);
 
 		if (!mConfig->mEnv->GetSkybox() || !mConfig->mEnv->GetSampler())
 			return; // do nothing
 
-		auto& pipeline = *op.GFX.get();
+		auto& pipeline = *op->GFX;
 
 		pipeline.Begin(cmds);
 
@@ -650,52 +664,53 @@ void AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 		pipeline.End();
 	};
 
-	mConfig->mRenderGraphBuilder["SkyboxStage"].UpdateFn = [config](EXEC_NAMESPACE::Operation& op)
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[shadingIdx + 2]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
 		{
-		auto& pipeline = *reinterpret_cast<SkyboxPipeline*>(op.GFX.get());
+		auto& pipeline = *reinterpret_cast<SkyboxPipeline*>(GetRefAddr(op->GFX));
 
 			pipeline.SetClearDepthStencilValues(1.0f, 0);
 			
 			pipeline.UpdateCamera(config->mCamera);
 			pipeline.UpdateEnvironmentTexture(*config->mEnv->GetSkybox(), config->mEnv->GetSampler());
 		};
+
+	return graph;
 }
 
-void AQUA_NAMESPACE::Renderer::LinkShaderExecutionGraphs(std::string fMatPrefix, std::string deferPrefix)
+void AQUA_NAMESPACE::Renderer::LinkShaderExecutionGraphs(EXEC_NAMESPACE::GenericDraft& draft, EXEC_NAMESPACE::NodeID forwardID, EXEC_NAMESPACE::NodeID deferID)
 {
 	// start and end points of each material series
-	std::vector<std::pair<std::string, std::string>> endpoints;
+	std::vector<std::pair<EXEC_NAMESPACE::NodeID, EXEC_NAMESPACE::NodeID>> endpoints;
 
-	auto insertEndPoints = [this, &endpoints](const std::string& matName,
+	auto insertEndPoints = [this, &endpoints](EXEC_NAMESPACE::NodeID matBegin,
 		const std::vector<Core::MaterialInfo>& materials)
 	{
 		if (!materials.empty())
 		{
-			auto& syncPoint = endpoints.emplace_back(matName + std::to_string(0),
-				matName + std::to_string(materials.size() - 1));
+			auto& syncPoint = endpoints.emplace_back(matBegin, matBegin + materials.size() - 1);
 		}
 	};
 
-	insertEndPoints(deferPrefix, mConfig->mRenderableManagerie.GetDeferredMaterials());
-	insertEndPoints(fMatPrefix, mConfig->mRenderableManagerie.GetForwardMaterials());
+	insertEndPoints(deferID, mConfig->mRenderableManagerie.GetDeferredMaterials());
+	insertEndPoints(forwardID, mConfig->mRenderableManagerie.GetForwardMaterials());
 
 	for (size_t i = 1; i < endpoints.size(); i++)
 	{
-		mConfig->mRenderGraphBuilder.InsertDependency(endpoints[i - 1].second, endpoints[i].first,
+		draft.Connect(endpoints[i - 1].second, endpoints[i].first,
 			vk::PipelineStageFlagBits::eFragmentShader);
 	}
 
 	if (!endpoints.empty())
 	{
-		mConfig->mRenderGraphBuilder.InsertDependency("GBufferStage", endpoints.front().first);
-		mConfig->mRenderGraphBuilder.InsertDependency("ClearBuffers", endpoints.front().first);
-		mConfig->mRenderGraphBuilder.InsertDependency(endpoints.back().second, "SkyboxStage",
+		draft.Connect(0, endpoints.front().first, vk::PipelineStageFlagBits::eTopOfPipe);
+		draft.Connect(1, endpoints.front().first, vk::PipelineStageFlagBits::eTopOfPipe);
+		draft.Connect(endpoints.back().second, draft.GetOpCount(),
 			vk::PipelineStageFlagBits::eFragmentShader);
 	}
 	else
 	{
-		mConfig->mRenderGraphBuilder.InsertDependency("GBufferStage", "SkyboxStage");
-		mConfig->mRenderGraphBuilder.InsertDependency("ClearBuffers", "SkyboxStage");
+		draft.Connect(0, draft.GetOpCount(), vk::PipelineStageFlagBits::eTopOfPipe);
+		draft.Connect(1, draft.GetOpCount(), vk::PipelineStageFlagBits::eTopOfPipe);
 	}
 }
 

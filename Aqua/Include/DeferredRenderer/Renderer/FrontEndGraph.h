@@ -2,7 +2,8 @@
 #include "Features.h"
 #include "Environment.h"
 #include "../Renderable/RenderTargetFactory.h"
-#include "../../Execution/GraphBuilder.h"
+#include "../../Execution/GenericDraft.h"
+#include "../../Execution/Ensemble.h"
 
 AQUA_BEGIN
 
@@ -35,7 +36,7 @@ private:
 
 	void SetupShaders();
 
-	std::vector<std::string> GetOutputs() const;
+	EXEC_NAMESPACE::Wavefront GetOutputs() const;
 
 	std::vector<vkLib::ImageView> GetDepthViews() const;
 	std::vector <vkLib::Framebuffer> GetDepthbuffers() const;

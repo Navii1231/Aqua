@@ -138,7 +138,7 @@ VK_NAMESPACE::VK_CORE::Buffer VK_NAMESPACE::VK_CORE::VK_UTILS::CreateBuffer(Buff
 {
 	vk::BufferCreateInfo bufferInfo;
 	bufferInfo.setSharingMode(vk::SharingMode::eExclusive);
-	bufferInfo.setSize(bufferInput.ElemCount * bufferInput.TypeSize);
+	bufferInfo.setSize(bufferInput.DeviceSize);
 	bufferInfo.setUsage(bufferInput.Usage);
 	bufferInfo.setQueueFamilyIndices(bufferInput.ResourceOwner);
 

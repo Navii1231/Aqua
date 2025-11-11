@@ -1,29 +1,29 @@
 #include "Core/vkpch.h"
 #include "Process/Worker.h"
 
-uint32_t VK_NAMESPACE::VK_CORE::Worker::Dispatch(vk::ArrayProxy<vk::SubmitInfo> submitInfo, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
+uint32_t VK_NAMESPACE::VK_CORE::Worker::Enqueue(vk::ArrayProxy<vk::SubmitInfo> submitInfo, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
 {
 	return SubmitRange(submitInfo, timeOut);
 }
 
-uint32_t VK_NAMESPACE::VK_CORE::Worker::Dispatch(vk::ArrayProxy<vk::CommandBuffer> cmdBuffer, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
+uint32_t VK_NAMESPACE::VK_CORE::Worker::Enqueue(vk::ArrayProxy<vk::CommandBuffer> cmdBuffer, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
 {
 	vk::SubmitInfo submitInfo{};
 	submitInfo.setCommandBuffers(cmdBuffer);
 
-	return Dispatch(submitInfo, timeOut);
+	return Enqueue(submitInfo, timeOut);
 }
 
-uint32_t VK_NAMESPACE::VK_CORE::Worker::Dispatch(vk::ArrayProxy<vk::Semaphore> signalSemaphores, vk::ArrayProxy<vk::CommandBuffer> buffers, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
+uint32_t VK_NAMESPACE::VK_CORE::Worker::Enqueue(vk::ArrayProxy<vk::Semaphore> signalSemaphores, vk::ArrayProxy<vk::CommandBuffer> buffers, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
 {
 	vk::SubmitInfo submitInfo{};
 	submitInfo.setCommandBuffers(buffers);
 	submitInfo.setSignalSemaphores(signalSemaphores);
 
-	return Dispatch(submitInfo, timeOut);
+	return Enqueue(submitInfo, timeOut);
 }
 
-uint32_t VK_NAMESPACE::VK_CORE::Worker::Dispatch(vk::ArrayProxy<QueueWaitingPoint> waitPoints, vk::ArrayProxy<vk::Semaphore> signalSemaphores, vk::ArrayProxy<vk::CommandBuffer> buffers, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
+uint32_t VK_NAMESPACE::VK_CORE::Worker::Enqueue(vk::ArrayProxy<QueueWaitingPoint> waitPoints, vk::ArrayProxy<vk::Semaphore> signalSemaphores, vk::ArrayProxy<vk::CommandBuffer> buffers, std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const
 {
 	std::vector<vk::PipelineStageFlags> WaitStages;
 	std::vector<vk::Semaphore> WaitSemaphores;
@@ -43,7 +43,7 @@ uint32_t VK_NAMESPACE::VK_CORE::Worker::Dispatch(vk::ArrayProxy<QueueWaitingPoin
 	submitInfo.setWaitSemaphores(WaitSemaphores);
 	submitInfo.setSignalSemaphores(signalSemaphores);
 
-	return Dispatch(submitInfo, timeOut);
+	return Enqueue(submitInfo, timeOut);
 }
 
 vk::Result VK_NAMESPACE::VK_CORE::Worker::WaitIdle(std::chrono::nanoseconds timeOut /*= std::chrono::nanoseconds::max()*/) const

@@ -64,7 +64,7 @@ VK_NAMESPACE::Image VK_NAMESPACE::ResourcePool::CreateImage(const ImageCreateInf
 	Image image(chunkRef);
 
 	image.mCommandPools = mImageCommandPools;
-	image.mWorkingClass = GetQueueManager();
+	image.mWorkingClass = GetWorkingClass();
 	image.mChunk->RscPool = std::make_shared<ResourcePool>(*this);
 
 	return image;

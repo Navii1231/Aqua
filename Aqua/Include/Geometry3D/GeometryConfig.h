@@ -72,19 +72,19 @@ struct MeshData
 
 	FacePrimitive mPrimitive = FacePrimitive::eTriangle;
 
-	uint32_t GetFaceIndexCount() const;
-	size_t GetIndexCount() const;
+	AQUA_API uint32_t GetFaceIndexCount() const;
+	AQUA_API size_t GetIndexCount() const;
 	size_t GetVertexCount() const { return aPositions.size(); }
 
-	void AssignPositions(const glm::vec3* positions, uint32_t count);
-	void AssignTexCoords(const glm::vec3* coords, uint32_t count);
-	void AssignNormals(const glm::vec3* normals, uint32_t count);
-	void AssignTangentsAndBitangents(const glm::vec3* tangents, const glm::vec3* bitangents, uint32_t count);
+	AQUA_API void AssignPositions(const glm::vec3* positions, uint32_t count);
+	AQUA_API void AssignTexCoords(const glm::vec3* coords, uint32_t count);
+	AQUA_API void AssignNormals(const glm::vec3* normals, uint32_t count);
+	AQUA_API void AssignTangentsAndBitangents(const glm::vec3* tangents, const glm::vec3* bitangents, uint32_t count);
 
-	void AssignFaces(const aiFace* faces, uint32_t materialRef, uint32_t count, unsigned int primType);
+	AQUA_API void AssignFaces(const aiFace* faces, uint32_t materialRef, uint32_t count, unsigned int primType);
 
-	void SetMaterialRef(uint32_t materialRef);
-	void SetMaterialRef(size_t BeginIdx, size_t EndIdx, uint32_t materialRef);
+	AQUA_API void SetMaterialRef(uint32_t materialRef);
+	AQUA_API void SetMaterialRef(size_t BeginIdx, size_t EndIdx, uint32_t materialRef);
 
 private:
 	static FacePrimitive ConvertPrimitiveType(unsigned int primType);

@@ -19,15 +19,11 @@ public:
 
 	VKLIB_API uint32_t FindOptimalQueueFamilyIndex(vk::QueueFlagBits flag) const;
 	vk::QueueFlags GetFamilyCapabilities(uint32_t index) const
-	{
-		return mWorkerFamilies.at(index).Capabilities;
-	}
+	{ return mWorkerFamilies.at(index).Capabilities; }
 
 	// Getter for info...
 	VKLIB_API uint32_t GetWorkerCount(uint32_t familyIndex) const;
-
 	VKLIB_API std::vector<Core::WorkerLock*> GetWorkerQueueLocks() const;
-
 	VKLIB_API Core::QueueFamilyIndices GetPresentQueueFamilyIndices() const;
 
 	const Core::WorkerFamily& GetWorkerFamily(uint32_t familyIndex) const { return mWorkerFamilies.at(familyIndex); }

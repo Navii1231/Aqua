@@ -7,7 +7,9 @@ EXEC_BEGIN
 
 // Aqua Flow execution model
 
-struct Operation;
+struct GenericNode;
+
+using NodeID = uint64_t;
 
 enum class GraphTraversalState
 {
@@ -43,12 +45,13 @@ enum class GraphError
 	eDependencyUponItself               = 4,
 	eFoundEmbeddedCircuit               = 5,
 	eInjectedOpDoesntExist              = 6,
+	eFailedToConstructNode               = 7,
 };
 
 struct DependencyMetaData
 {
-	std::string From;
-	std::string To;
+	NodeID From;
+	NodeID To;
 	vk::PipelineStageFlags WaitingStage;
 };
 
@@ -58,16 +61,46 @@ struct InjectionMetaData
 	vkLib::Core::Ref<vk::Semaphore> Signal;
 };
 
-struct OpStates
+struct DescriptorHasher
 {
-	OpType Type = OpType::eNone;
-	State Exec = State::ePending;
-
-	GraphTraversalState TraversalState = GraphTraversalState::ePending;
-
-	OpStates() = default;
-	OpStates(OpType type) : Type(type) {}
+	size_t operator()(const ::VK_NAMESPACE::DescriptorLocation& location) const
+	{
+		return ::VK_NAMESPACE::CreateHash(location);
+	}
 };
+
+struct GraphRsc
+{
+	// type of the buffer or image
+	std::string Typename = "fp32";
+
+	// location and name - unique across whole graph
+	vkLib::DescriptorLocation Location;
+	std::string Name;
+
+	// buffer rsc
+	vkLib::GenericBuffer Buffer;
+
+	// image rsc
+	vk::Format Format = vk::Format::eR8G8B8A8Unorm;
+	vkLib::ImageView ImageView;
+	vkLib::Core::Ref<vk::Sampler> Sampler;
+
+	// operations sharing this rsc
+	std::set<NodeID> Operations;
+
+	// descriptor type
+	vk::DescriptorType Type = vk::DescriptorType::eStorageBuffer;
+
+	bool operator==(const GraphRsc& other) const
+	{
+		return Typename == other.Typename && Location == other.Location && Name == other.Name && Type == other.Type;
+	}
+
+	bool operator!=(const GraphRsc& other) const { return !operator==(other); }
+};
+
+using GraphRscMap = std::unordered_map<vkLib::DescriptorLocation, GraphRsc, DescriptorHasher>;
 
 EXEC_END
 AQUA_END

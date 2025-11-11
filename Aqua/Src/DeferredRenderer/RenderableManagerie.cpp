@@ -157,15 +157,15 @@ void AQUA_NAMESPACE::RenderableManagerie::SubmitLines(const std::string& lineIsl
 	RenderableSubmitInfo submission(lineIsland, glm::mat4(1.0f), lineRenderable, lineMaterial, bindings);
 
 	submission.SetCameraDescLocation({ 0, 0, 0 });
-	submission.SetMatUpdateFn([thickness](EXEC_NAMESPACE::Operation& op)
+	submission.SetMatUpdateFn([thickness](EXEC_NAMESPACE::GenericNode* op)
 	{
 		// setting the lines width and the rest will be taken care by the default update functionality
-		op.GFX->SetLineWidth(thickness);
+		op->GFX->SetLineWidth(thickness);
 	});
 
-	submission.SetMatExecuteFn([](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+	submission.SetMatExecuteFn([](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 	{
-		auto pipeline = *op.GFX;
+		auto pipeline = *op->GFX;
 
 		pipeline.Begin(buffer);
 
@@ -198,15 +198,15 @@ void AQUA_NAMESPACE::RenderableManagerie::SubmitCurves(const std::string& curveI
 	RenderableSubmitInfo submission(curveIsland, glm::mat4(1.0f), lineRenderable, lineMaterial, bindings);
 
 	submission.SetCameraDescLocation({ 0, 0, 0 });
-	submission.SetMatUpdateFn([thickness](EXEC_NAMESPACE::Operation& op)
+	submission.SetMatUpdateFn([thickness](EXEC_NAMESPACE::GenericNode* op)
 	{
 		// setting the lines width and the rest will be taken care by the default update functionality
-		op.GFX->SetLineWidth(thickness);
+		op->GFX->SetLineWidth(thickness);
 	});
 
-	submission.SetMatExecuteFn([](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+	submission.SetMatExecuteFn([](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 	{
-		auto pipeline = *op.GFX;
+		auto pipeline = *op->GFX;
 
 		pipeline.Begin(buffer);
 
@@ -257,9 +257,9 @@ void AQUA_NAMESPACE::RenderableManagerie::SubmitPoints(const std::string& pointI
 
 	RenderableSubmitInfo submitInfo(pointIsland, glm::mat4(1.0f), pointRenderable, pointMaterial, bindings);
 	submitInfo.SetCameraDescLocation({ 0, 0, 0 });
-	submitInfo.SetMatExecuteFn([pointSize, vertexCount](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+	submitInfo.SetMatExecuteFn([pointSize, vertexCount](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 	{
-		auto pipeline = *op.GFX;
+		auto pipeline = *op->GFX;
 
 		pipeline.Begin(buffer);
 
@@ -594,7 +594,7 @@ void AQUA_NAMESPACE::RenderableManagerie::TransferVertexRsc(VertexFactory& verte
 	cmd.end();
 
 	// incrementing the counter to select the next worker
-	auto submissionIdx = mConfig->mWorkers[freeWorker++].Dispatch(cmd);
+	auto submissionIdx = mConfig->mWorkers[freeWorker++].Enqueue(cmd);
 
 	history.push_back(submissionIdx);
 }
@@ -669,16 +669,16 @@ void AQUA_NAMESPACE::RenderableManagerie::AddMaterial(const RenderableSubmitInfo
 {
 	bool forward = submitInfo.Material.GetRendererPlatform() == MAT_NAMESPACE::Platform::eLightingRaster;
 
-	auto forwardMaterialExecute = [this, submitInfo, matIdx](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+	auto forwardMaterialExecute = [this, submitInfo, matIdx](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 	{ ExecuteForwardMaterial(buffer, op, submitInfo, matIdx); };
 
-	auto deferredMaterialExecute = [this, submitInfo, matIdx](vk::CommandBuffer buffer, const EXEC_NAMESPACE::Operation& op)
+	auto deferredMaterialExecute = [this, submitInfo, matIdx](vk::CommandBuffer buffer, const EXEC_NAMESPACE::GenericNode* op)
 	{ ExecuteLightingMaterial(buffer, op, submitInfo, matIdx); };
 
-	auto forwardMaterialUpdate = [this, submitInfo, matIdx](EXEC_NAMESPACE::Operation& op)
+	auto forwardMaterialUpdate = [this, submitInfo, matIdx](EXEC_NAMESPACE::GenericNode* op)
 	{ UpdateForwardMaterial(matIdx, op, submitInfo); };
 
-	auto deferredMaterialUpdate = [this, submitInfo, matIdx](EXEC_NAMESPACE::Operation& op)
+	auto deferredMaterialUpdate = [this, submitInfo, matIdx](EXEC_NAMESPACE::GenericNode* op)
 	{ UpdateLightingMaterial(op, submitInfo); };
 
 	if (forward)
@@ -688,12 +688,12 @@ void AQUA_NAMESPACE::RenderableManagerie::AddMaterial(const RenderableSubmitInfo
 }
 
 void AQUA_NAMESPACE::RenderableManagerie::ExecuteLightingMaterial(vk::CommandBuffer buffer,
-	const EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo, uint32_t matIdx)
+	const EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo, uint32_t matIdx)
 {
 	// renderer only accepts compute shader as the deferred materials
 	EXEC_NAMESPACE::CBScope executioner(buffer);
 
-	auto& pipeline = *op.Cmp;
+	auto& pipeline = *op->Cmp;
 	auto& instance = submitInfo.Material;
 
 	glm::uvec2 resolution = mShadingbuffer.GetResolution();
@@ -734,11 +734,11 @@ void AQUA_NAMESPACE::RenderableManagerie::ExecuteLightingMaterial(vk::CommandBuf
 }
 
 void AQUA_NAMESPACE::RenderableManagerie::ExecuteForwardMaterial(vk::CommandBuffer buffer,
-	const EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo, uint32_t matIdx)
+	const EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo, uint32_t matIdx)
 {
 	EXEC_NAMESPACE::CBScope executioner(buffer);
 
-	auto& hsLinePipeline = *op.GFX;
+	auto& hsLinePipeline = *op->GFX;
 
 	hsLinePipeline.SetFramebuffer(mShadingbuffer);
 
@@ -756,23 +756,23 @@ void AQUA_NAMESPACE::RenderableManagerie::ExecuteForwardMaterial(vk::CommandBuff
 	hsLinePipeline.End();
 }
 
-void AQUA_NAMESPACE::RenderableManagerie::UpdateLightingMaterial(EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo)
+void AQUA_NAMESPACE::RenderableManagerie::UpdateLightingMaterial(EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo)
 {
 	// note: this implementation of renderer only accepts compute pipelines as lighting passes
 	auto resolution = mShadingbuffer.GetResolution();
 
-	auto& pipeline = *op.Cmp;
+	auto& pipeline = *op->Cmp;
 
 	submitInfo.mMaterialData.mUpdateFn(op);
 
 	submitInfo.Material.UpdateDescriptors();
 }
 
-void AQUA_NAMESPACE::RenderableManagerie::UpdateForwardMaterial(uint32_t matIdx, EXEC_NAMESPACE::Operation& op, const RenderableSubmitInfo& submitInfo)
+void AQUA_NAMESPACE::RenderableManagerie::UpdateForwardMaterial(uint32_t matIdx, EXEC_NAMESPACE::GenericNode* op, const RenderableSubmitInfo& submitInfo)
 {
 	auto resolution = mShadingbuffer.GetResolution();
 	auto& materialInfo = mConfig->mForwardMaterials[matIdx];
-	auto& pipeline = *op.GFX;
+	auto& pipeline = *op->GFX;
 
 	pipeline.SetClearColorValues(0, { 0.0f, 1.0f, 0.0f, 1.0f });
 	pipeline.SetClearDepthStencilValues(1.0f, 0);

@@ -1,7 +1,8 @@
 #pragma once
 #include "Features.h"
 #include "../Renderable/RenderTargetFactory.h"
-#include "../../Execution/GraphBuilder.h"
+#include "../../Execution/GenericDraft.h"
+#include "../../Execution/Ensemble.h"
 #include "Environment.h"
 
 AQUA_BEGIN
@@ -35,7 +36,7 @@ private:
 
 	void SetupShaders();
 
-	std::vector<std::string> GetInputs() const;
+	EXEC_NAMESPACE::Wavefront GetInputs() const;
 
 	vkLib::Framebuffer GetPostprocessbuffer() const;
 

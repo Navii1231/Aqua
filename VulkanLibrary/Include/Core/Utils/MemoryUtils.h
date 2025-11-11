@@ -42,14 +42,13 @@ struct BufferConfig
 	vk::BufferUsageFlags Usage = vk::BufferUsageFlagBits::eTransferDst | 
 		vk::BufferUsageFlagBits::eTransferSrc;
 
-	vk::DeviceSize ElemCount = 0;
-	vk::DeviceSize TypeSize = 0;
+	vk::DeviceSize DeviceSize = 0;
 	vk::MemoryPropertyFlags MemProps = vk::MemoryPropertyFlagBits::eDeviceLocal;
 
 	void SetProperty(vk::BufferUsageFlags flags)
 	{ Usage = flags | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc; }
 
-	void SetProperty(size_t elemCount) { ElemCount = elemCount; }
+	void SetProperty(size_t elemCount) { DeviceSize = elemCount; }
 	void SetProperty(vk::MemoryPropertyFlags flags) { MemProps = flags; }
 };
 
@@ -59,7 +58,7 @@ struct Buffer
 	vk::DeviceMemory Memory{};
 	vk::MemoryRequirements MemReq{};
 
-	size_t ElemCount = 0;
+	size_t BufferSize = 0;
 
 	BufferConfig Config{};
 };

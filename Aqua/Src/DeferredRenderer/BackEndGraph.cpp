@@ -1,7 +1,7 @@
 #include "Core/Aqpch.h"
 #include "DeferredRenderer/Renderer/BackEndGraph.h"
 #include "DeferredRenderer/Renderer/Environment.h"
-#include "Execution/GraphBuilder.h"
+#include "Execution/GenericDraft.h"
 #include "DeferredRenderer/Pipelines/TextureVisualizer.h"
 #include "Utils/CompilerErrorChecker.h"
 
@@ -11,7 +11,7 @@ struct BackEndGraphConfig
 {
 	RendererFeatureFlags mFeatures;
 
-	std::vector<std::string> mInputs;
+	EXEC_NAMESPACE::Wavefront mInputs;
 
 	FeatureInfoMap mFeatureInfos;
 	vkLib::Buffer<CameraInfo> mCamera;
@@ -28,7 +28,7 @@ struct BackEndGraphConfig
 
 	// SSAO, Bloom effect, screen space reflections, post processing effects, skybox stuff
 	// motion blur
-	EXEC_NAMESPACE::GraphBuilder mGraphBuilder;
+	EXEC_NAMESPACE::GenericDraft mGraphBuilder;
 
 	vkLib::Core::Ref<vk::Sampler> mPostProcessSampler;
 
@@ -106,17 +106,24 @@ void AQUA_NAMESPACE::BackEndGraph::PrepareBloomEffect()
 
 void AQUA_NAMESPACE::BackEndGraph::PreparePostProcessing()
 {
-	auto config = mConfig;
+	mConfig->mGraphBuilder.SubmitOperation(-1);
+	mConfig->mInputs.emplace_back(-1);
+}
 
+AQUA_NAMESPACE::EXEC_NAMESPACE::Graph AQUA_NAMESPACE::BackEndGraph::CreateGraph()
+{
+	auto config = mConfig;
 	auto pipelineBuilder = mConfig->mCtx.MakePipelineBuilder();
 
-	mConfig->mGraphBuilder.InsertPipelineOp("PostProcess", pipelineBuilder.BuildGraphicsPipeline<TextureVisualizer>(mConfig->mPostProcessingShader, mConfig->mPostProcessingBuffer));
+	auto graph = *mConfig->mGraphBuilder.Construct({ EXEC_NAMESPACE::NodeID(-1) });
 
-	mConfig->mGraphBuilder["PostProcess"].Fn = [config](vk::CommandBuffer cmd, const EXEC_NAMESPACE::Operation& op)
+	graph.InsertPipeOp(-1, pipelineBuilder.BuildGraphicsPipeline<TextureVisualizer>(mConfig->mPostProcessingShader, mConfig->mPostProcessingBuffer));
+
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[-1]).Fn = [config](vk::CommandBuffer cmd, const EXEC_NAMESPACE::GenericNode* op)
 		{
 			EXEC_NAMESPACE::CBScope exec(cmd);
 
-			auto& pipeline = *(TextureVisualizer*)GetRefAddr(op.GFX);
+			auto& pipeline = *(TextureVisualizer*)GetRefAddr(op->GFX);
 			auto image = *config->mShadingBuffer.GetColorAttachments().front();
 
 			image.BeginCommands(cmd);
@@ -132,19 +139,14 @@ void AQUA_NAMESPACE::BackEndGraph::PreparePostProcessing()
 			image.EndCommands();
 		};
 
-	mConfig->mGraphBuilder["PostProcess"].UpdateFn = [config](EXEC_NAMESPACE::Operation& op)
+	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[-1]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
 		{
-			auto& pipeline = *reinterpret_cast<TextureVisualizer*>(GetRefAddr(op.GFX));
+			auto& pipeline = *reinterpret_cast<TextureVisualizer*>(GetRefAddr(op->GFX));
 
 			pipeline.UpdateTexture(config->mShadingBuffer.GetColorAttachments().front(), config->mPostProcessSampler);
 		};
 
-	mConfig->mInputs.emplace_back("PostProcess");
-}
-
-AQUA_NAMESPACE::EXEC_NAMESPACE::Graph AQUA_NAMESPACE::BackEndGraph::CreateGraph()
-{
-	return *mConfig->mGraphBuilder.GenerateExecutionGraph({ "PostProcess" });
+	return graph;
 }
 
 void AQUA_NAMESPACE::BackEndGraph::SetModels(Mat4Buf models)
@@ -180,7 +182,7 @@ void AQUA_NAMESPACE::BackEndGraph::SetupShaders()
 	auto errors = mConfig->mPostProcessingShader.CompileShaders();
 }
 
-std::vector<std::string> AQUA_NAMESPACE::BackEndGraph::GetInputs() const
+AQUA_NAMESPACE::EXEC_NAMESPACE::Wavefront AQUA_NAMESPACE::BackEndGraph::GetInputs() const
 {
 	return mConfig->mInputs;
 }

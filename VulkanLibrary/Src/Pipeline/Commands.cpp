@@ -36,7 +36,7 @@ void VK_NAMESPACE::CommandBufferAllocator::EndOneTimeCommands(
 	vk::SubmitInfo submitInfo{};
 	submitInfo.setCommandBuffers(CmdBuffer);
 
-	workers.Dispatch(submitInfo);
+	workers.Enqueue(submitInfo);
 	workers.WaitIdle();
 
 	Free(CmdBuffer);

@@ -4,6 +4,7 @@
 #include "ShaderCompiler/ShaderCompiler.h"
 #include "Utils/EditorCamera.h"
 #include "DeferredRenderer/ImGui/ImGuiLib.h"
+#include "Layer.h"
 
 #include <chrono>
 
@@ -86,6 +87,12 @@ public:
 	void Run();
 	bool IsRunning() const { return mRunning.load(); }
 
+	void AddLayer(Aqua::SharedRef<Layer> layer);
+	void RemoveLayer(size_t whichOne = 0);
+	void SwapLayers(size_t first, size_t second);
+
+	Aqua::SharedRef<Layer> GetLayer(size_t whichOne) const { return mLayers[whichOne]; }
+
 	std::filesystem::path GetAssetDirectory() const { return std::filesystem::absolute(mCreateInfo.AssetDirectory); }
 
 	virtual ~Application() = default;
@@ -104,6 +111,8 @@ protected:
 
 	std::atomic_bool mRunning = false;
 
+	std::vector<Aqua::SharedRef<Layer>> mLayers;
+
 	ApplicationCreateInfo mCreateInfo;
 
 	static Application* sApplicationInstance;
@@ -121,6 +130,10 @@ private:
 	void CreateSurface();
 	void SetupMessenger();
 	void SetupContext(const ApplicationCreateInfo& info);
+
+private:
+	bool InvokeStart();
+	bool InvokeUpdate(std::chrono::nanoseconds timer);
 };
 
 __declspec(selectany) Application* Application::sApplicationInstance = nullptr;

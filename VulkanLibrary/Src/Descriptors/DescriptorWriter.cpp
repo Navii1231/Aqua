@@ -242,5 +242,10 @@ size_t CreateHash(const DescriptorLocation& location)
 	return Utils::CombineHash(location.SetIndex, Utils::CombineHash(location.Binding, location.ArrayIndex));
 }
 
+size_t ConvertIntoMapKey(const DescriptorLocation& location)
+{
+	return location.ArrayIndex << 24 | location.SetIndex << 16 | location.Binding;
+}
+
 VK_END
 

@@ -24,7 +24,7 @@ public:
 
 	VKLIB_API SamplerCache CreateSamplerCache() const;
 
-	std::shared_ptr<const WorkingClass> GetQueueManager() const { return mWorkingClass; }
+	std::shared_ptr<const WorkingClass> GetWorkingClass() const { return mWorkingClass; }
 
 	explicit operator bool() const { return static_cast<bool>(mDevice); }
 
@@ -40,8 +40,8 @@ private:
 	friend class Context;
 };
 
-Image Clone(Context ctx, const Image& image);
-ImageView Clone(Context ctx, const ImageView& view);
+VKLIB_API Image Clone(Context ctx, const Image& image);
+VKLIB_API ImageView Clone(Context ctx, const ImageView& view);
 
 template <typename T, typename ...Properties>
 VK_NAMESPACE::Buffer<T> VK_NAMESPACE::ResourcePool::CreateBuffer(Properties&&... props) const
@@ -51,11 +51,12 @@ VK_NAMESPACE::Buffer<T> VK_NAMESPACE::ResourcePool::CreateBuffer(Properties&&...
 	Core::BufferResource Chunk;
 	Core::BufferConfig Config{};
 
-	Config.ElemCount = 0;
+	Config.DeviceSize = 0;
 	Config.LogicalDevice = *Device;
 	Config.PhysicalDevice = mPhysicalDevice.Handle;
-	Config.TypeSize = sizeof(T);
 	(Config.SetProperty(std::forward<Properties>(props)),...);
+
+	Config.DeviceSize *= Buffer<T>::sTypeSize; // correct scaling
 
 	// Creating an empty buffer
 	Chunk.BufferHandles = Core::CreateRef<Core::Buffer>([Device](Core::Buffer& buffer)
@@ -69,15 +70,15 @@ VK_NAMESPACE::Buffer<T> VK_NAMESPACE::ResourcePool::CreateBuffer(Properties&&...
 
 	Chunk.Device = Device;
 	Chunk.BufferHandles->Config = Config;
-	Chunk.BufferHandles->Config.ElemCount = 0;
+	Chunk.BufferHandles->Config.DeviceSize = 0;
 
 	Buffer<T> buffer(std::move(Chunk));
-	buffer.mWorkingClass = GetQueueManager();
+	buffer.mWorkingClass = GetWorkingClass();
 	buffer.mCommandPools = mBufferCommandPools;
 	buffer.mChunk.RscPool = std::make_shared<ResourcePool>(*this);
 
-	buffer.Reserve(Config.ElemCount == 0 ? 1 : Config.ElemCount);
-	buffer.Resize(Config.ElemCount);
+	buffer.Reserve(Config.DeviceSize == 0 ? 1 : Config.DeviceSize / Buffer<T>::sTypeSize);
+	buffer.Resize(Config.DeviceSize / Buffer<T>::sTypeSize);
 
 	return buffer;
 }

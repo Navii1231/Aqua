@@ -5,65 +5,65 @@ std::expected<std::string, AQUA_NAMESPACE::MAT_NAMESPACE::MaterialGraphPostproce
 	AQUA_NAMESPACE::MaterialPostprocessor::ResolveCustomParameters(MAT_NAMESPACE::ShaderParameterSet& parameters) const
 {
 	if (mShaderTextView.empty())
-		return std::unexpected(ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eEmptyString, {}, "Empty string"));
+		return std::unexpected(ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eEmptyString, {}, { 0, 0, 0 }, "Empty string"));
 
 	Lexer lexer;
 	lexer.SetString(mShaderTextView);
 	lexer.SetWhiteSpacesAndDelimiters(" \t\r\n", "@.(){}[]=+-*/%|^&!~?:;,");
 
-	Token token;
-
 	size_t prevIdx = lexer.GetPosition();
+	lexer++;
 
 	std::string output;
 	output.reserve(mShaderTextView.size());
 
 	while(true)
 	{
-		prevIdx = lexer.GetPosition();
-		token = lexer.Advance();
-
-		if (token.Lexeme.empty())
+		if (lexer.HasConsumed())
 		{
-			output += mShaderTextView.substr(prevIdx, lexer.GetPosition() - prevIdx);
+			output += mShaderTextView.substr(prevIdx, lexer.GetCursors().PosOff - prevIdx);
 			break;
 		}
 
+		size_t currPos = lexer.GetCursors().PosOff;
+
 		// Try to look for [basic_type].[name] pattern
-		if (GetBasicTypeIdx(token) != -1)
+		if (GetBasicTypeIdx(*lexer) != -1)
 		{
-			Token typeName = token;
-			Token dot = lexer.Advance();
+			Token typeName = lexer++;
 
-			if (dot.Lexeme == ".") // our variable
+			if (*lexer == ".") // our variable
 			{
-				Token varName = lexer.Advance();
+				lexer++;
+				Token varName = lexer++;
 
-				if (!ValidVariableName(varName.Lexeme))
+				if (!ValidVariableName(varName))
 					return std::unexpected(ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidCustomParameter,
-						varName, "Invalid custom parameter name: " + std::string(varName.Lexeme)));
+						varName, lexer.GetCursors(), "Invalid custom parameter name: " + std::string(varName)));
 
-				if (parameters.find(std::string(varName.Lexeme)) == parameters.end())
+				if (parameters.find(std::string(varName)) == parameters.end())
 				{
-					auto& par = parameters[std::string(varName.Lexeme)];
-					par.Type = std::string(typeName.Lexeme);
-					par.Name = std::string(varName.Lexeme);
+					auto& par = parameters[std::string(varName)];
+					par.Type = std::string(typeName);
+					par.Name = std::string(varName);
 					par.TypeSize = 0; // will be set by the material builder
 					par.Offset = 0; // will be configured by the material builder
 				}
 
-				output += mShaderTextView.substr(prevIdx, token.PosInStr - prevIdx);
+				output += mShaderTextView.substr(prevIdx, currPos - prevIdx - typeName.size());
+				output += mCustomPrefix + parameters[std::string(varName)].Name;
 
-				output += mCustomPrefix + parameters[std::string(varName.Lexeme)].Name;
+				prevIdx = lexer.GetPosition();
+
+				continue;
 			}
-			else // otherwise their variable
-				output += mShaderTextView.substr(prevIdx, lexer.GetPosition() - prevIdx);
-
-			continue;
 		}
 
 		// Otherwise just emit the token as is
-		output += mShaderTextView.substr(prevIdx, lexer.GetPosition() - prevIdx);
+		output += mShaderTextView.substr(prevIdx, lexer.GetCursors().PosOff - prevIdx);
+
+		prevIdx = lexer.GetCursors().PosOff;
+		lexer++;
 	}
 
 	return output;
@@ -87,44 +87,39 @@ std::expected<std::string, AQUA_NAMESPACE::MAT_NAMESPACE::MaterialGraphPostproce
 	lexer.SetString(mShaderTextView);
 	lexer.SetWhiteSpacesAndDelimiters(" \t\r", "\n");
 
-	size_t prevIdx = 0;
+	lexer++;
 
-	Token PrevToken{};
-	Token CurrToken{};
+	size_t prevIdx = 0;
 
 	while (true)
 	{
-		prevIdx = lexer.GetPosition();
-
-		PrevToken = CurrToken;
-		CurrToken = lexer.Advance();
-
-		if (CurrToken.Lexeme.empty())
+		if (lexer.HasConsumed())
 		{
 			output += mShaderTextView.substr(prevIdx, lexer.GetPosition() - prevIdx);
 			break;
 		}
 
-		if (CurrToken.Lexeme == "import")
-		{
-			Token ShaderNameToken = lexer.Advance();
-			Token EndLineToken = lexer.Advance();
+		Token curr = *lexer;
+		auto cursor = lexer.GetCursors();
 
-			if (!ImportSanityCheck(error, PrevToken, CurrToken, ShaderNameToken, EndLineToken))
+		if (*lexer == "import")
+		{
+			lexer++;
+			Token shaderNameToken = lexer++;
+			Token endLineToken = lexer++;
+
+			if (!ImportSanityCheck(error, lexer, prevIdx, curr, shaderNameToken, endLineToken, cursor))
 				return std::unexpected(error);
 
-			std::string_view shaderName = ShaderNameToken.Lexeme;
+			size_t Size = curr.size() + shaderNameToken.size() + endLineToken.size();
 
-			size_t position = CurrToken.PosInStr;
-			size_t Size = CurrToken.Lexeme.size() + ShaderNameToken.Lexeme.size() + EndLineToken.Lexeme.size();
-
-			std::string lexemeString = std::string(shaderName);
+			std::string lexemeString = std::string(shaderNameToken);
 
 			auto iter = mImportsModules.find(lexemeString);
 
 			if (iter == mImportsModules.end())
 			{
-				ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eShaderNotFound, CurrToken,
+				ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eShaderNotFound, curr, cursor,
 					"Could not import the shader: " + lexemeString);
 
 				return std::unexpected(error);
@@ -134,52 +129,57 @@ std::expected<std::string, AQUA_NAMESPACE::MAT_NAMESPACE::MaterialGraphPostproce
 			output += iter->second;
 			output += "\n";
 
-			CurrToken = EndLineToken;
+			prevIdx = lexer.GetPosition();
+			lexer++;
 
 			continue;
 		}
 
 		// Otherwise just emit the token as is
 		output += mShaderTextView.substr(prevIdx, lexer.GetPosition() - prevIdx);
+
+		prevIdx = lexer.GetPosition();
+		lexer++;
 	}
 
 	return output;
 }
 
-AQUA_NAMESPACE::MAT_NAMESPACE::MaterialGraphPostprocessError AQUA_NAMESPACE::MaterialPostprocessor::ConstructError(
-	MAT_NAMESPACE::MaterialPostprocessState state, const Token& token, const std::string& errorString) const
+AQUA_NAMESPACE::MAT_NAMESPACE::MaterialGraphPostprocessError AQUA_NAMESPACE::MaterialPostprocessor::ConstructError(MAT_NAMESPACE::MaterialPostprocessState state, const Token& token, const Cursors& cursors, const std::string& errorString) const
 {
 	MAT_NAMESPACE::MaterialGraphPostprocessError error;
 	error.State = state;
-	error.Info = "line (" + std::to_string(token.LineNo) + ", " +
-		std::to_string(token.CharOff) + ") -- " + errorString;
+	error.Info = "line (" + std::to_string(cursors.LineOff) + ", " +
+		std::to_string(cursors.CharOff) + ") -- " + errorString;
 
 	return error;
 }
 
-bool AQUA_NAMESPACE::MaterialPostprocessor::ImportSanityCheck(MAT_NAMESPACE::MaterialGraphPostprocessError& error,
-	const Token& prevToken, const Token& importKeyword, const Token& shaderImport, const Token& endLine) const
+bool AQUA_NAMESPACE::MaterialPostprocessor::ImportSanityCheck(MAT_NAMESPACE::MaterialGraphPostprocessError& error, Lexer& lexer, const size_t prevIdx, const Token& importKeyword, const Token& shaderImport, const Token& endLine, const Cursors& cursors) const
 {
-	if (shaderImport.Lexeme.empty())
+	auto str = lexer.GetString();
+
+	if (shaderImport.empty())
 	{
-		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, importKeyword,
-			"No shader has been provided");
+		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, importKeyword, cursors, "No shader has been provided");
 
 		return false;
 	}
 
-	if (prevToken.Lexeme != "\n" && prevToken.Lexeme != importKeyword.Lexeme && !prevToken.Lexeme.empty())
+	if (prevIdx == 0)
 	{
-		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, prevToken,
-			"The import statement must begin with a new line");
+		// do nothing, this is a valid case
+	}
+	else if (str[prevIdx] != '\n')
+	{
+		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, importKeyword, cursors, "The import statement must begin with a new line");
 
 		return false;
 	}
 
-	if (endLine.Lexeme != "\n" && endLine.Lexeme[0] != '\0')
+	if (endLine != "\n" && endLine[0] != '\0')
 	{
-		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, endLine,
-			"Unexpected token \'" + std::string(endLine.Lexeme) + "\'");
+		error = ConstructError(MAT_NAMESPACE::MaterialPostprocessState::eInvalidImportDirective, endLine, cursors, "Unexpected token \'" + std::string(endLine) + "\'");
 
 		return false;
 	}
@@ -218,7 +218,7 @@ uint32_t AQUA_NAMESPACE::MaterialPostprocessor::GetBasicTypeIdx(const Token& tok
 {
 	auto found = std::find_if(mBasicShaderTypes.begin(), mBasicShaderTypes.end(), [&token](const std::string& type)
 		{
-			if (token.Lexeme == type)
+			if (token == type)
 				return true;
 
 			return false;

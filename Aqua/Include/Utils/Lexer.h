@@ -7,46 +7,95 @@
 
 AQUA_BEGIN
 
-template <typename Char>
-struct BasicToken
+struct Cursors
 {
-	std::basic_string_view<Char> Lexeme;
-	int LineNo = 0;
-	int CharOff = 0;
-
-	size_t PosInStr = static_cast<size_t>(0);
+	size_t PosOff = 0;
+	size_t LineOff = 0;
+	size_t CharOff = 0;
 };
 
+// one way to solve is to inherit the string view class
+// but that would break the existing codebase
+// okay, let's bring the revolution
 template <typename Char>
+struct BasicToken : public std::basic_string_view<Char>
+{
+	using MyStr = std::basic_string<Char>;
+	using MyStrView = std::basic_string_view<Char>;
+
+	BasicToken() = default;
+	~BasicToken() = default;
+
+	template <typename _Expr>
+	BasicToken(const _Expr& strExpr)
+		: MyStrView(strExpr) {}
+
+	template <typename _Expr>
+	BasicToken& operator=(const _Expr& strExpr)
+	{
+		*this = BasicToken(strExpr);
+		return *this;
+	}
+
+	operator MyStr() const { return MyStr(*this); }
+	operator MyStrView() const { return MyStrView(*this); }
+};
+
+template <typename Char, typename TokenType = BasicToken<Char>>
 class BasicLexer
 {
 public:
 	using MyStringView = std::basic_string_view<Char>;
 	using MyString = std::basic_string<Char>;
-	using MyToken = BasicToken<Char>;
+	using MyToken = TokenType;
 
 public:
 	BasicLexer() = default;
 
-	BasicLexer(const BasicLexer&) = delete;
-	BasicLexer& operator =(const BasicLexer&) = delete;
+	BasicLexer(const BasicLexer&) = default;
+	BasicLexer& operator =(const BasicLexer&) = default;
 
-	inline MyToken Advance();
-	inline MyToken Peek(size_t off = 1);
+	inline MyToken Advance(int64_t _off = 1);
+	inline MyToken Peek(size_t off = 1) const;
 
 	inline void SetMarker();
 	inline void RetrieveMarker();
 
+	inline void SetCursors(size_t posOff, size_t lineOff = -1, size_t charOff = -1);
+	inline void CutOff(size_t posOff);
 	inline void Reset();
+
+	inline BasicLexer Inherit(int64_t offset, size_t count = -1) const;
+
+	inline std::string_view GetString() const { return mSource; }
 
 	// NOTE: The string must not be destroyed while the class ::AQUA_NAMESPACE::Lexer is using it
 	inline void SetString(const MyStringView& source);
 	inline void SetWhiteSpacesAndDelimiters(const MyString& spaces, const MyString& delimiters);
 
 	const MyToken& GetCurrent() const { return mCurrent; }
-	bool HasConsumed() const { return mPosInStr >= mSource.size(); }
+	bool HasConsumed() const { return mCursors.PosOff >= mSource.size(); }
 
-	size_t GetPosition() const { return mPosInStr; }
+	size_t GetPosition() const { return mCursors.PosOff - mCurrent.size(); }
+	Cursors GetCursors() const { return mCursors; }
+
+	MyToken operator*() const { return mCurrent; }
+	const MyToken* operator->() const { return &mCurrent; }
+	Char operator[](size_t off) const { return mSource[off]; }
+
+	MyToken operator++(int)
+	{ auto curr = GetCurrent(); Advance(1); return curr; }
+	MyToken operator--(int)
+	{ auto curr = GetCurrent(); Advance(-1); return curr; }
+
+	BasicLexer& operator++() { Advance(1); return *this; }
+	BasicLexer& operator--() { Advance(-1); return *this; }
+
+	BasicLexer& operator+=(size_t _off) { Advance(_off); return *this; }
+	BasicLexer& operator-=(size_t _off) { Advance(-_off); return *this; }
+
+	MyToken operator+(size_t _off) const { return Peek(_off); }
+	MyToken operator-(size_t _off) const { return Peek(-_off); }
 
 	inline std::vector<MyToken> Lex();
 	inline std::vector<MyToken> LexString(const MyStringView& view);
@@ -56,22 +105,18 @@ private:
 	MyToken mCurrent;
 	MyToken mMarkerToken;
 
-	size_t mPosInStr = 0;
-
-	size_t mLineNumber = 0;
-	size_t mCharOffset = 0;
+	Cursors mCursors, mMarkedEncoders;
 
 	MyString mDelimiters;
 	MyString mWhiteSpaces;
 
 private:
+	inline void SkipWhiteSpaces(Cursors& encoder) const;
+	inline MyToken ReadUntilDelimiterHits(Cursors& encoder) const;
+	inline bool IsInString(char val, const MyString& str) const;
 
-	inline void SkipWhiteSpaces();
-	inline MyToken ReadUntilDelimiterHits();
-	inline bool IsInString(char val, const MyString& str);
-
-	inline char Increment();
-	inline void UpdateState(char Current);
+	inline char Increment(Cursors& encoder) const;
+	inline void UpdateEncoder(char Current, Cursors& encoder) const;
 };
 
 using Token = BasicToken<char>;
@@ -79,74 +124,122 @@ using Lexer = BasicLexer<char>;
 
 AQUA_END
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::SetString(const MyStringView& source)
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::SetString(const MyStringView& source)
 {
 	mSource = source;
 }
 
-template <typename Char>
-typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken AQUA_NAMESPACE::BasicLexer<Char>::Advance()
+template <typename Char, typename TokenType>
+typename AQUA_NAMESPACE::BasicLexer<Char, TokenType>::MyToken AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Advance(int64_t _off /*= 1*/)
 {
 	if (HasConsumed())
 		return {};
 
-	SkipWhiteSpaces();
-	mCurrent = ReadUntilDelimiterHits();
+	// relying on compiler optimizations
+	// the compiler will strip away the while loop and 
+	// if condition for default '_off' value
+	if (_off == 0)
+		return GetCurrent();
+
+	while (_off != 0)
+	{
+		SkipWhiteSpaces(mCursors);
+		mCurrent = ReadUntilDelimiterHits(mCursors);
+		_off--;
+	}
 
 	return mCurrent;
 }
 
-template <typename Char>
-typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken AQUA_NAMESPACE::BasicLexer<Char>::Peek(size_t off)
+template <typename Char, typename TokenType>
+typename AQUA_NAMESPACE::BasicLexer<Char, TokenType>::MyToken AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Peek(size_t off) const
 {
 	if (off == 0)
 		return GetCurrent();
 
 	MyToken curr = mCurrent;
-
-	SetMarker();
+	Cursors encoder = mCursors;
 
 	while (off != 0)
 	{
 		if (HasConsumed())
 			break;
 
-		SkipWhiteSpaces();
-		curr = ReadUntilDelimiterHits();
+		SkipWhiteSpaces(encoder);
+		curr = ReadUntilDelimiterHits(encoder);
 		off--;
 	}
-
-	RetrieveMarker();
 
 	return curr;
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::SetMarker()
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::SetMarker()
 {
 	mMarkerToken = mCurrent;
+	mMarkedEncoders = mCursors;
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::RetrieveMarker()
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::RetrieveMarker()
 {
 	mCurrent = mMarkerToken;
-	mCharOffset = mCurrent.CharOff;
-	mLineNumber = mCurrent.LineNo;
-	mPosInStr = mCurrent.PosInStr;
+	mCursors = mMarkedEncoders;
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::Reset()
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::SetCursors(size_t posOff, size_t lineOff /*= -1*/, size_t charOff /*= -1*/)
 {
-	mPosInStr = 0;
-	mLineNumber = 0;
-	mCharOffset = 0;
+	// for line and char offs equals to -1, we shall read all the character again up until pos off
+
+	if (posOff > mSource.size())
+		return;
+
+	mCursors.PosOff = posOff;
+	mCursors.CharOff = charOff;
+	mCursors.LineOff = lineOff;
+
+	if (lineOff == -1) // recalculate the char offs
+	{
+		mCursors.LineOff = 0;
+		mCursors.CharOff = 0;
+
+		for (size_t i = 0; i < posOff; i++)
+		{
+			mCursors.LineOff += mSource[i] == '\n';
+			mCursors.CharOff = mSource[i] == '\n' ? 0 : mCursors.CharOff + 1;
+		}
+	}
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::SetWhiteSpacesAndDelimiters(const MyString& spaces, const MyString& delimiters)
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::CutOff(size_t posOff)
+{
+	if (posOff >= mSource.size())
+		mSource = {};
+
+	mSource = mSource.substr(posOff); // cutting off the initialize string up to posOff...
+}
+
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Reset()
+{
+	mCursors = {};
+}
+
+template <typename Char, typename TokenType>
+AQUA_NAMESPACE::BasicLexer<Char, TokenType> AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Inherit(int64_t offset, size_t count) const
+{
+	BasicLexer inherited;
+	inherited.SetString(mSource.substr(static_cast<int64_t>(mCursors.PosOff) + offset, count));
+	inherited.SetWhiteSpacesAndDelimiters(mWhiteSpaces, mDelimiters);
+
+	return inherited;
+}
+
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::SetWhiteSpacesAndDelimiters(const MyString& spaces, const MyString& delimiters)
 {
 	mWhiteSpaces = spaces;
 	mDelimiters = delimiters;
@@ -154,8 +247,8 @@ void AQUA_NAMESPACE::BasicLexer<Char>::SetWhiteSpacesAndDelimiters(const MyStrin
 	mDelimiters.append(mWhiteSpaces);
 }
 
-template <typename Char>
-std::vector<typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken> AQUA_NAMESPACE::BasicLexer<Char>::Lex()
+template <typename Char, typename TokenType>
+std::vector<typename AQUA_NAMESPACE::BasicLexer<Char, TokenType>::MyToken> AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Lex()
 {
 	std::vector<MyToken> tokens;
 
@@ -169,8 +262,8 @@ std::vector<typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken> AQUA_NAMESPACE::
 	return tokens;
 }
 
-template <typename Char>
-std::vector<typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken> AQUA_NAMESPACE::BasicLexer<Char>::LexString(const MyStringView& view)
+template <typename Char, typename TokenType>
+std::vector<typename AQUA_NAMESPACE::BasicLexer<Char, TokenType>::MyToken> AQUA_NAMESPACE::BasicLexer<Char, TokenType>::LexString(const MyStringView& view)
 {
 	// Create a new token to store new string
 	Lexer lexer{};
@@ -180,90 +273,83 @@ std::vector<typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken> AQUA_NAMESPACE::
 	return lexer.Lex();
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::SkipWhiteSpaces()
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::SkipWhiteSpaces(Cursors& encoder) const
 {
 	_STL_ASSERT(!mSource.empty(), "The Lexer string was empty!");
 
 	const char* Src = mSource.begin()._Unwrapped();
-	char Current = Src[mPosInStr];
+	char Current = Src[encoder.PosOff];
 
 	while (IsInString(Current, mWhiteSpaces) && Current != '\0')
 	{
-		Current = Src[++mPosInStr];
-		UpdateState(Current);
+		Current = Src[++encoder.PosOff];
+		UpdateEncoder(Current, encoder);
 	}
 }
 
-template <typename Char>
-typename AQUA_NAMESPACE::BasicLexer<Char>::MyToken AQUA_NAMESPACE::BasicLexer<Char>::ReadUntilDelimiterHits()
+template <typename Char, typename TokenType>
+typename AQUA_NAMESPACE::BasicLexer<Char, TokenType>::MyToken AQUA_NAMESPACE::BasicLexer<Char, TokenType>::ReadUntilDelimiterHits(Cursors& encoder) const
 {
 	_STL_ASSERT(!mSource.empty(), "The Lexer string was empty!");
 
 	if (HasConsumed())
 		return {};
 
-	MyToken next;
-	next.LineNo = static_cast<int>(mLineNumber);
-	next.CharOff = static_cast<int>(mCharOffset);
-	next.PosInStr = mPosInStr;
-
+	size_t prevPos = encoder.PosOff;
 	auto Src = mSource.data();
-
-	char Current = Src[mPosInStr++];
+	char Current = Src[encoder.PosOff++];
 
 	// Checking if we are directly hitting a delimiter
 	if (IsInString(Current, mDelimiters) || Current == '\0')
 	{
-		next.Lexeme = mSource.substr(next.PosInStr, 1);
-		return next;
+		return mSource.substr(prevPos, 1);
 	}
 
-	Current = Src[mPosInStr];
+	Current = Src[encoder.PosOff];
 
 	// Scan till we don't run into a delimiter, but don't include it
 	while (!IsInString(Current, mDelimiters) && Current != '\0')
-		Current = Increment();
+		Current = Increment(encoder);
 
-	next.Lexeme = mSource.substr(next.PosInStr, mPosInStr - next.PosInStr);
-
-	return next;
+	return mSource.substr(prevPos, encoder.PosOff - prevPos);
 }
 
-template <typename Char>
-bool AQUA_NAMESPACE::BasicLexer<Char>::IsInString(char val, const MyString& str)
+template <typename Char, typename TokenType>
+bool AQUA_NAMESPACE::BasicLexer<Char, TokenType>::IsInString(char val, const MyString& str) const
 {
+	// TODO: could be optimized with binary search...
 	auto found = std::find(str.begin(), str.end(), val);
 	return found != str.end();
 }
 
-template <typename Char>
-char AQUA_NAMESPACE::BasicLexer<Char>::Increment()
+template <typename Char, typename TokenType>
+char AQUA_NAMESPACE::BasicLexer<Char, TokenType>::Increment(Cursors& encoder) const
 {
 	auto Src = mSource.data();
-	char Current = Src[++mPosInStr];
+	char Current = Src[++encoder.PosOff];
 
 	if (Current == '\n')
 	{
-		mLineNumber++;
-		mCharOffset = 0;
+		encoder.LineOff++;
+		encoder.CharOff = 0;
 		return Current;
 	}
 
-	mCharOffset++;
+	encoder.CharOff++;
 
 	return Current;
 }
 
-template <typename Char>
-void AQUA_NAMESPACE::BasicLexer<Char>::UpdateState(char Current)
+template <typename Char, typename TokenType>
+void AQUA_NAMESPACE::BasicLexer<Char, TokenType>::UpdateEncoder(char Current, Cursors& encoder) const
 {
 	if (Current == '\n')
 	{
-		mLineNumber++;
-		mCharOffset = 0;
+		encoder.LineOff++;
+		encoder.CharOff = 0;
 		return;
 	}
 
-	mCharOffset++;
+	encoder.CharOff++;
 }
