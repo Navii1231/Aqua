@@ -11,7 +11,7 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 
 	std::map<NodeID, KernelExtractions> allExts{};
 
-	auto graph = _ConstructEx<NodeRef>(probes, true, [this, &allExts](NodeID node, const std::string& kernel)->std::expected<NodeRef, GraphError>
+	auto graph = _ConstructEx<NodeRef>(probes, true, [this, &allExts](NodeID node, const std::string& kernel)->NodeRef
 		{
 			// this where we shall create our compute node
 			KernelExtractions exts = GLSLParser(kernel, 440).Extract();
@@ -21,11 +21,8 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 
 			auto success = InsertResources(*computeNode, exts);
 
-			if (!success)
-				return std::unexpected(success.error());
-
 			return computeNode;
-		}, [this](const MyNodeInfo& from, const MyNodeInfo& to)->std::expected<bool, GraphError>
+		}, [this](const MyNodeInfo& from, const MyNodeInfo& to)
 			{
 				Dependency dependency{};
 				dependency.SetIncomingOP(from.ID);
@@ -35,8 +32,6 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 
 				from.Node->AddOutputConnection(dependency);
 				to.Node->AddInputConnection(dependency);
-
-				return true;
 			});
 
 	if (!graph)

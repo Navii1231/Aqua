@@ -15,6 +15,7 @@ public:
 
 	using MyNodeInfo = _NodeInfo;
 	using MyDepInfo = std::tuple<_DepInfo...>;
+	using MyTraversalInfo = std::map<NodeID, GraphTraversalState>;
 
 	struct Connection
 	{
@@ -37,10 +38,10 @@ public:
 	};
 
 	template <typename _NodeRefT>
-	using NodeConstructorFn = std::function<std::expected<_NodeRefT, GraphError>(NodeID, const _NodeInfo&)>;
+	using NodeConstructorFn = std::function<_NodeRefT(NodeID, const _NodeInfo&)>;
 
 	template <typename _NodeRefT>
-	using NodeConnectorFn = std::function<std::expected<bool, GraphError>(const NodeInfo<_NodeRefT>&, const NodeInfo<_NodeRefT>&, _DepInfo&&...)>;
+	using NodeConnectorFn = std::function<void(const NodeInfo<_NodeRefT>&, const NodeInfo<_NodeRefT>&, _DepInfo&&...)>;
 
 public:
 	Draft() = default;
@@ -64,41 +65,35 @@ public:
 	const std::map<NodeID, MyNodeInfo> GetNodes() const { return mNodes; }
 
 	// construction
-	template <typename _NodeRefT>
-	std::expected<BasicGraph<_NodeRefT>, GraphError> _ConstructEx(const Wavefront& probes, bool forward, NodeConstructorFn<_NodeRefT>&& constructor, NodeConnectorFn<_NodeRefT>&& connector) const;
+	template <typename _NodeRefT, typename _NodeConFn, typename _DepConFn>
+	std::expected<BasicGraph<_NodeRefT>, GraphError> _ConstructEx(const Wavefront& probes, bool forward, _NodeConFn&& constructor, _DepConFn&& connector) const;
 
 private:
 	mutable std::map<NodeID, MyNodeInfo> mNodes;
 	MyConnectionList mConnections;
 
 private:
-	template <typename _NodeRefT>
-	std::expected<bool, GraphError> BuildDependencySkeleton(typename BasicGraph<_NodeRefT>::MyNodeRefMap& opCache, NodeID nodeId, Wavefront& front, MyPaths& paths, NodeConstructorFn<_NodeRefT>& constructor, NodeConnectorFn<_NodeRefT>& connector) const;
+	template <typename _NodeRefT, typename _NodeConFn, typename _DepConFn>
+	std::expected<bool, GraphError> BuildDependencySkeleton(typename BasicGraph<_NodeRefT>::NodeRefMap& opCache, MyTraversalInfo& traversalStates, NodeID nodeId, Wavefront& front, MyPaths& paths, _NodeConFn& constructor, _DepConFn& connector) const;
 
 	MyPaths ConstructPaths(bool direction) const;
-	std::expected<bool, GraphError> ValidateDependencyInputs(MyPaths& paths) const;
-
+	std::expected<bool, GraphError> ValidateConnections(const Wavefront& probes, MyPaths& paths) const;
 	// optimizations... (run automatically once you create a graph)
-	template <typename _NodeRefT>
-	void RemoveRedundantConnections(BasicGraph<_NodeRefT>& graph) const;
+	void RemoveRedundantConnections(const Wavefront& probes) const;
 
 	template <typename _NodeRefT, typename _ConnectorFn, std::_Tuple_like _Tuple, size_t... _Indices>
 	static constexpr decltype(auto) ConnectorApply(_ConnectorFn&& _Con, const NodeInfo<_NodeRefT>& from, const NodeInfo<_NodeRefT>& to, _Tuple _tuple, std::index_sequence<_Indices...>)
 		noexcept(noexcept(std::invoke(std::forward<_ConnectorFn>(_Con), from, to, std::get<_Indices>(std::forward<_Tuple>(_tuple))...)))
-	{
-		return std::invoke(std::forward<_ConnectorFn>(_Con), from, to, std::get<_Indices>(std::forward<_Tuple>(_tuple))...);
-	}
+	{ return std::invoke(std::forward<_ConnectorFn>(_Con), from, to, std::get<_Indices>(std::forward<_Tuple>(_tuple))...); }
 };
 
 EXEC_END
 AQUA_END
 
 template <typename MyNodeInfo, typename ..._DepInfo>
-template <typename _NodeRefT>
-std::expected<typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::_ConstructEx(const Wavefront& probes, bool forward, NodeConstructorFn<_NodeRefT>&& constructor, NodeConnectorFn<_NodeRefT>&& connector) const
+template <typename _NodeRefT, typename _NodeConFn, typename _DepConFn>
+std::expected<typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::_ConstructEx(const Wavefront& probes, bool forward, _NodeConFn&& constructor, _DepConFn&& connector) const
 {
-	// TODO: I wonder if this function could detect loops...
-
 	for (auto path : probes)
 	{
 		if (std::find_if(mNodes.begin(), mNodes.end(), [path](const std::pair<NodeID, MyNodeInfo> nodeInfo) { return path == nodeInfo.first; }) == mNodes.end())
@@ -106,77 +101,77 @@ std::expected<typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>, AQ
 	}
 
 	MyPaths paths = ConstructPaths(forward);
-	auto error = ValidateDependencyInputs(paths);
+	auto valid = ValidateConnections(probes, paths);
 
-	if (!error)
-		return std::unexpected(error.error());
+	if (!valid)
+		return std::unexpected(valid.error());
 
-	typename BasicGraph<_NodeRefT>::MyNodeRefMap nodes;
+	typename BasicGraph<_NodeRefT>::NodeRefMap nodes;
 	Wavefront front;
+	MyTraversalInfo traversalStates;
 
-	for (const auto& path : probes)
+	for (const auto& [id, nodeInfo] : mNodes)
+		traversalStates[id] = GraphTraversalState::ePending;
+
+	for (const auto& probe : probes)
 	{
-		auto error = BuildDependencySkeleton(nodes, path, front, paths, constructor, connector);
+		auto error = BuildDependencySkeleton(nodes, traversalStates, probe, front, paths, constructor, connector);
 
 		if (!error)
 			return std::unexpected(error.error());
 	}
 
-	Graph graph;
+	BasicGraph<_NodeRefT> graph;
 	graph.InputNodes = front;
 	graph.OutputNodes = Wavefront(probes.begin(), probes.end());
 	graph.Nodes = nodes;
-	graph.Lock = MakeRef<std::mutex>();
-
-	auto validated = graph.Validate();
-
-	if (!validated)
-		return std::unexpected(validated.error());
 
 	return graph;
 }
 
 
 template <typename MyNodeInfo, typename ..._DepInfo>
-template <typename _NodeRefT>
-std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::BuildDependencySkeleton(typename BasicGraph<_NodeRefT>::MyNodeRefMap& opCache, NodeID nodeId, Wavefront& front, MyPaths& paths, NodeConstructorFn<_NodeRefT>& constructor, NodeConnectorFn<_NodeRefT>& connector) const
+template <typename _NodeRefT, typename _NodeConFn, typename _DepConFn>
+std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::BuildDependencySkeleton(typename BasicGraph<_NodeRefT>::NodeRefMap& opCache, MyTraversalInfo& traversalStates, NodeID nodeId, Wavefront& front, MyPaths& paths, _NodeConFn& constructor, _DepConFn& connector) const
 {
-	if (opCache.find(nodeId) != opCache.end())
+	if (traversalStates[nodeId] == GraphTraversalState::eVisited)
 		return true;
 
+	if (traversalStates[nodeId] == GraphTraversalState::eVisiting)
+		return std::unexpected(GraphError::eFoundEmbeddedCircuit);
+
+	traversalStates[nodeId] = GraphTraversalState::eVisiting;
+
 	auto constructed = constructor(nodeId, mNodes[nodeId]);
-
-	if (!constructed)
-		return std::unexpected(constructed.error());
-
-	opCache[nodeId] = *constructed;
+	opCache[nodeId] = constructed;
 
 	if (paths[nodeId].empty())
 		front.push_back(nodeId);
 
-	for (const auto& connection : paths[nodeId])
+	for (const auto& con : paths[nodeId])
 	{
-		auto success = BuildDependencySkeleton(opCache, connection.Connection.From, front, paths, constructor, connector);
+		if (con.Connection.From == con.Connection.To)
+			return std::unexpected(GraphError::eDependencyUponItself);
+
+		auto success = BuildDependencySkeleton(opCache, traversalStates, con.Connection.From, front, paths, constructor, connector);
 
 		if (!success)
 			return std::unexpected(success.error());
 
-		NodeInfo<_NodeRefT> FromInfo(paths[connection.Connection.From]), ToInfo(paths[nodeId]);
+		NodeInfo<_NodeRefT> FromInfo(paths[con.Connection.From]), ToInfo(paths[nodeId]);
 
-		FromInfo.ID = connection.Connection.From;
+		FromInfo.ID = con.Connection.From;
 		FromInfo.Info = mNodes[FromInfo.ID];
 		FromInfo.Node = opCache[FromInfo.ID];
 
 		ToInfo.ID = nodeId;
 		ToInfo.Info = mNodes[nodeId];
-		ToInfo.Node = *constructed;
+		ToInfo.Node = constructed;
 
-		success = ConnectorApply(connector, FromInfo, ToInfo, connection.DepInfo, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<MyDepInfo>>>{});
-
-		if (!success)
-			return std::unexpected(success.error());
+		ConnectorApply(connector, FromInfo, ToInfo, con.DepInfo, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<MyDepInfo>>>{});
 	}
 
+	traversalStates[nodeId] = GraphTraversalState::eVisited;
 	return true;
 }
 
@@ -209,20 +204,19 @@ typename AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<_NodeInfo, _DepInfo...>::MyPaths 
 }
 
 template <typename MyNodeInfo, typename ..._DepInfo> 
-std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::ValidateDependencyInputs(MyPaths& paths) const
+std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<MyNodeInfo, _DepInfo...>::ValidateConnections(const Wavefront& probes, MyPaths& paths) const
 {
-	for (const auto& [id, connectList] : paths)
+	// todo: O(n*logn) time complexity but the checks are absolutely necessary...
+
+	for (const auto& probe : probes)
 	{
-		for (const auto& con : connectList)
+		for (const auto& con : paths[probe])
 		{
 			if (mNodes.find(con.Connection.From) == mNodes.end())
 				return std::unexpected(GraphError::eInvalidConnection);
 
 			if (mNodes.find(con.Connection.To) == mNodes.end())
 				return std::unexpected(GraphError::eInvalidConnection);
-
-			if (con.Connection.From == con.Connection.To)
-				return std::unexpected(GraphError::eDependencyUponItself);
 		}
 	}
 

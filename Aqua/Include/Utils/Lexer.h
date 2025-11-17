@@ -51,6 +51,9 @@ public:
 
 public:
 	BasicLexer() = default;
+	BasicLexer(MyStringView str) : mSource(str) {}
+	BasicLexer(MyStringView str, const MyString& whiteSpaces, const MyString& delimiters)
+		: mSource(str) { SetWhiteSpacesAndDelimiters(whiteSpaces, delimiters); }
 
 	BasicLexer(const BasicLexer&) = default;
 	BasicLexer& operator =(const BasicLexer&) = default;

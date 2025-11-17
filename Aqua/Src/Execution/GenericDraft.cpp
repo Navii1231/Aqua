@@ -22,10 +22,10 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 {
 	using NodeInfo = typename MyDraftType::NodeInfo<NodeRef>;
 
-	return _ConstructEx<NodeRef>(pathEnds, true, [this](NodeID nodeId, const GenericNode& node)->std::expected<NodeRef, GraphError>
+	return _ConstructEx<NodeRef>(pathEnds, true, [this](NodeID nodeId, const GenericNode& node)->NodeRef
 		{
 			return MakeRef(node);
-		}, [this](const NodeInfo& from, const NodeInfo& to, vk::PipelineStageFlags stageFlags)->std::expected<bool, GraphError>
+		}, [this](const NodeInfo& from, const NodeInfo& to, vk::PipelineStageFlags stageFlags)
 			{
 				Dependency dependency{};
 				dependency.SetIncomingOP(from.ID);
@@ -35,8 +35,6 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 
 				from.Node->AddOutputConnection(dependency);
 				to.Node->AddInputConnection(dependency);
-
-				return true;
 			});
 }
 

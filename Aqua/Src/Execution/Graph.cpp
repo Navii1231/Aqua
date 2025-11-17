@@ -47,7 +47,7 @@ void AQUA_NAMESPACE::EXEC_NAMESPACE::SerializeExecutionWavefronts(vkLib::Context
 	SerializeExecutionWavefronts(ctx, graphs, allInputs);
 }
 
-void AQUA_NAMESPACE::EXEC_NAMESPACE::Execute(const vk::ArrayProxy<GraphList>& lists, const vk::ArrayProxy<ExecutionUnit>& execUnits)
+void AQUA_NAMESPACE::EXEC_NAMESPACE::Execute(const vk::ArrayProxy<Graph::Executable>& lists, const vk::ArrayProxy<ExecutionUnit>& execUnits)
 {
 	size_t execCount = execUnits.size();
 
@@ -99,8 +99,6 @@ std::expected<uint32_t, vk::Result> AQUA_NAMESPACE::EXEC_NAMESPACE::FindFreeExec
 AQUA_NAMESPACE::EXEC_NAMESPACE::Graph AQUA_NAMESPACE::EXEC_NAMESPACE::Clone(vkLib::Context ctx, const Graph& graph)
 {
 	Graph cloned = graph;
-
-	cloned.Lock = MakeRef<std::mutex>();
 
 	// todo: here we clone all the nodes while respecting the dependencies
 

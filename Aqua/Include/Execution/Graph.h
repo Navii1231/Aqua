@@ -6,29 +6,21 @@ AQUA_BEGIN
 EXEC_BEGIN
 
 using ExecutionUnit = vkLib::ExecutionUnit;
-using GraphList = std::vector<SharedRef<Node>>;
-using GraphNodes = std::map<NodeID, SharedRef<Node>>;
 
 template <typename _NodeRefT>
 struct BasicGraph
 {
 	using MyNodeRef = _NodeRefT;
-	using MyNodeRefMap = std::map<NodeID, _NodeRefT>;
+	using NodeRefMap = std::map<NodeID, _NodeRefT>;
 	using MyNodeTraversalStates = std::map<NodeID, GraphTraversalState>;
-	using MyGraphList = std::vector<MyNodeRef>;
+	using Executable = std::vector<MyNodeRef>;
 
 	Wavefront InputNodes;
 	Wavefront OutputNodes;
-	MyNodeRefMap Nodes;
-
-	// keeping track of the node states
-	mutable MyNodeTraversalStates TraversalStates;
-
-	SharedRef<std::mutex> Lock;
+	NodeRefMap Nodes;
 
 	void Update() const;
-	MyGraphList SortEntries() const;
-	std::expected<bool, GraphError> Validate() const;
+	Executable SortEntries() const;
 
 	// legacy functions we're right now stuck with
 	template <typename _Pipeline>
@@ -50,8 +42,7 @@ struct BasicGraph
 	std::expected<bool, GraphError> InjectOutputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
 
 	// Recursive function to generate the sorted array of operations
-	void InsertNode(MyGraphList& list, NodeID id, MyNodeRef node) const;
-	bool FindClosedCircuit(NodeID id, MyNodeRef node) const;
+	void InsertNode(MyNodeTraversalStates& traversalState, Executable &list, NodeID id, MyNodeRef node) const;
 };
 
 template <typename _NodeRefT>
@@ -62,15 +53,15 @@ void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Update() const
 }
 
 template <typename _NodeRefT>
-typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::MyGraphList AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::SortEntries() const
+typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Executable AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::SortEntries() const
 {
-	std::lock_guard guard(*Lock);
+	MyNodeTraversalStates traversalStates;
 
-	MyGraphList list;
+	for (auto& [id, node] : Nodes)
+		traversalStates[id] = GraphTraversalState::ePending;
+
+	Executable list;
 	list.reserve(Nodes.size());
-
-	for (auto& node : TraversalStates)
-		node.second = GraphTraversalState::ePending;
 
 	for (const auto& path : OutputNodes)
 	{
@@ -78,23 +69,6 @@ typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::MyGraphList AQUA
 	}
 
 	return list;
-}
-
-template <typename _NodeRefT>
-std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Validate() const
-{
-	std::lock_guard guard(*Lock);
-
-	for (const auto& probe : OutputNodes)
-	{
-		if (FindClosedCircuit(probe, Nodes.at(probe)))
-			return std::unexpected(GraphError::eFoundEmbeddedCircuit);
-
-		for (auto& [id, node] : Nodes)
-			TraversalStates[id] = GraphTraversalState::ePending;
-	}
-
-	return true;
 }
 
 template <typename _NodeRefT>
@@ -191,42 +165,19 @@ std::expected<bool, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::
 }
 
 template <typename _NodeRefT>
-void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InsertNode(MyGraphList& list, NodeID id, MyNodeRef node) const
+void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::InsertNode(MyNodeTraversalStates& traversalStates, Executable& list, NodeID id, MyNodeRef node) const
 {
 	// if the node is already visited, we exit
-	if (TraversalStates[id] == GraphTraversalState::eVisited)
+	if (traversalStates[id] == GraphTraversalState::eVisited)
 		return;
 
 	// visit all incoming connections first
 	for (const auto& connection : node->GetInputConnections())
-		InsertNode(list, static_cast<NodeID>(*connection), Nodes.at(static_cast<NodeID>(*connection)));
+		InsertNode(traversalStates, list, static_cast<NodeID>(*connection), Nodes.at(static_cast<NodeID>(*connection)));
 
 	// otherwise we insert it into the sorted list
 	list.emplace_back(node);
-	TraversalStates[id] = GraphTraversalState::eVisited;
-}
-
-template <typename _NodeRefT>
-bool AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::FindClosedCircuit(NodeID id, MyNodeRef node) const
-{
-	if (TraversalStates[id] == GraphTraversalState::eVisited)
-		return false;
-
-	TraversalStates[id] = GraphTraversalState::eVisiting;
-
-	for (const auto& input : node->GetInputConnections())
-	{
-		// return if we find a closed circuit
-		if (TraversalStates[static_cast<NodeID>(*input)] == GraphTraversalState::eVisiting)
-			return true;
-
-		if (FindClosedCircuit(static_cast<NodeID>(*input), Nodes.at(static_cast<NodeID>(*input))))
-			return true;
-	}
-
-	TraversalStates[id] = GraphTraversalState::eVisited;
-
-	return false;
+	traversalStates[id] = GraphTraversalState::eVisited;
 }
 
 template <typename _NodeType1, typename _NodeType2>
@@ -242,7 +193,7 @@ AQUA_API void SerializeExecutionWavefronts(vkLib::Context ctx, const std::vector
 AQUA_API void SerializeExecutionWavefronts(vkLib::Context ctx, const std::vector<Graph>& graphs);
 
 // removing any dependency between two graphs
-AQUA_API void Execute(const vk::ArrayProxy<GraphList>& list, const vk::ArrayProxy<ExecutionUnit>& execUnits);
+AQUA_API void Execute(const vk::ArrayProxy<Graph::Executable>& list, const vk::ArrayProxy<ExecutionUnit>& execUnits);
 
 // waiting
 AQUA_API vk::Result WaitFor(const vk::ArrayProxy<ExecutionUnit>& execUnits, bool waitAll = true, std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max());

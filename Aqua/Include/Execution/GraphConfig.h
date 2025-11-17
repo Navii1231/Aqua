@@ -45,7 +45,7 @@ enum class GraphError
 	eDependencyUponItself               = 4,
 	eFoundEmbeddedCircuit               = 5,
 	eInjectedOpDoesntExist              = 6,
-	eFailedToConstructNode               = 7,
+	eFailedToConstructNode              = 7,
 };
 
 struct DependencyMetaData
