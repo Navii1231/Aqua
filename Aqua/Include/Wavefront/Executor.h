@@ -13,8 +13,8 @@ public:
 	Executor() = default;
 
 	// Copy the command buffers
-	Executor(const Executor& Other) = delete;
-	Executor& operator=(const Executor& Other) = delete;
+	Executor(const Executor&) = delete;
+	Executor& operator=(const Executor&) = delete;
 
 	Executor(Executor&&) = default;
 	Executor& operator =(Executor&&) = default;
@@ -69,9 +69,9 @@ private:
 
 	std::vector<EXEC_NAMESPACE::Graph> mTraceGraphs;
 
-	EXEC_NAMESPACE::GraphList mRayGenExecList;
-	EXEC_NAMESPACE::GraphList mPostProcessExecList;
-	std::vector<EXEC_NAMESPACE::GraphList> mTraceExecList;
+	EXEC_NAMESPACE::Graph::Executable mRayGenExecList;
+	EXEC_NAMESPACE::Graph::Executable mPostProcessExecList;
+	std::vector<EXEC_NAMESPACE::Graph::Executable> mTraceExecList;
 
 	// skybox
 	bool mSkyboxExists = false;
@@ -120,7 +120,7 @@ private:
 	void RecordLuminanceMean(vk::CommandBuffer commandBuffer, uint32_t pActiveBuffer);
 	void RecordPostProcess(vk::CommandBuffer commandBuffer);
 
-	void ExecuteGraphList(const EXEC_NAMESPACE::GraphList& execList);
+	void ExecuteGraphList(const EXEC_NAMESPACE::Graph::Executable& execList);
 
 	void UpdateSceneInfo();
 

@@ -58,7 +58,7 @@ public:
 
 	virtual void UpdateDescriptors() const { UpdateMaterialInfos(mCoreMaterial, *mInfo); }
 
-	// you can send only have predefined #GLSL/#HLSL types
+	// you can only have predefined #GLSL/#HLSL types
 	template <typename T>
 	std::expected<bool, ShaderParError> SetShaderParameter(const std::string& name, const T& parVal) const;
 

@@ -63,7 +63,7 @@ struct Node
 	std::vector<DependencyInjection> OutputInjections; // an external event is dependent upon this one
 
 	// essential execution utilities to exec::node
-	void operator()(vk::CommandBuffer cmd, vkLib::Core::Worker executor) const;
+	void operator()(vk::CommandBuffer cmd, vkLib::Core::Worker worker) const;
 	void operator()(vk::CommandBuffer cmd, vkLib::Core::Ref<vkLib::Core::WorkerQueue> worker, vk::Fence fence = nullptr) const;
 
 	void AddInputConnection(const Dependency& dependency) { InputConnections.emplace_back(dependency); }

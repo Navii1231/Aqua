@@ -45,6 +45,7 @@ template <typename Char, typename TokenType = BasicToken<Char>>
 class BasicLexer
 {
 public:
+	using MyChar = Char;
 	using MyStringView = std::basic_string_view<Char>;
 	using MyString = std::basic_string<Char>;
 	using MyToken = TokenType;
@@ -82,6 +83,7 @@ public:
 	size_t GetPosition() const { return mCursors.PosOff - mCurrent.size(); }
 	Cursors GetCursors() const { return mCursors; }
 
+	// decorations
 	MyToken operator*() const { return mCurrent; }
 	const MyToken* operator->() const { return &mCurrent; }
 	Char operator[](size_t off) const { return mSource[off]; }

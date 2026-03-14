@@ -33,8 +33,8 @@ struct BasicGraph
 	void ClearOutputInjections() const;
 	// end of legacy functions
 
-	Node& operator[](NodeID nodeId) { return *Nodes[nodeId]; }
-	const Node& operator[](NodeID nodeId) const { return *Nodes.at(nodeId); }
+	auto& operator[](NodeID nodeId) { return *Nodes[nodeId]; }
+	const auto& operator[](NodeID nodeId) const { return *Nodes.at(nodeId); }
 
 	// external dependencies
 	std::expected<bool, GraphError> InjectInputDependencies(const vk::ArrayProxy<DependencyInjection>& injections) const;
@@ -44,6 +44,158 @@ struct BasicGraph
 	// Recursive function to generate the sorted array of operations
 	void InsertNode(MyNodeTraversalStates& traversalState, Executable &list, NodeID id, MyNodeRef node) const;
 };
+
+template <typename _NodeRefT, typename _FnPre, typename _FnPost, typename _ChildFn, typename _Scheduler>
+TraversalState TraverseExMultiThreaded(const std::map<NodeID, _NodeRefT>& nodes, NodeID id, _FnPre preFn, _FnPost postFn, _ChildFn childFn, _Scheduler& scheduler)
+{
+	using RetType = std::remove_reference_t<decltype(scheduler(nodes, id, preFn, postFn, childFn, scheduler))>;
+
+	auto state = preFn(id);
+
+	if (state != TraversalState::eSuccess)
+		return state;
+
+	std::vector<RetType> futures{};
+	TraversalState lastState{};
+	constexpr bool isMultiThreaded = !std::is_same_v<RetType, TraversalState>;
+
+	if constexpr (isMultiThreaded)
+	{
+		futures.reserve(childFn(nodes.at(id)).size());
+		size_t idx = 0;
+		
+		for (auto ID : childFn(nodes.at(id)))
+		{
+			if(idx < childFn(nodes.at(id)).size() - 1)
+				futures.emplace_back(scheduler(nodes, ID, preFn, postFn, childFn, scheduler));
+			else
+				lastState = TraverseExMultiThreaded(nodes, ID, preFn, postFn, childFn, scheduler);
+
+			idx++;
+		}
+	}
+
+	size_t idx = 0;
+
+	for (auto ID : childFn(nodes.at(id)))
+	{
+		TraversalState value{};
+
+		if constexpr (isMultiThreaded)
+		{
+			if (idx < childFn(nodes.at(id)).size() - 1)
+				value = lastState;
+			else
+				value = futures[idx].get();
+		}
+		else
+			value = TraverseExMultiThreaded(nodes, ID, preFn, postFn, childFn, scheduler);
+
+		if (value == TraversalState::eQuit)
+			return value;
+	}
+
+	return postFn(id, childFn(nodes.at(id)));
+}
+
+template <typename _NodeRefT, typename _FnPre, typename _FnPost, typename _ChildFn>
+TraversalState TraverseEx(const std::map<NodeID, _NodeRefT>& nodes, NodeID id, _FnPre preFn, _FnPost postFn, _ChildFn childFn)
+{
+	struct SingleThreadedScheduler
+	{
+		TraversalState operator()(const std::map<NodeID, _NodeRefT>& nodes, NodeID id, _FnPre preFn, _FnPost postFn, _ChildFn childFn, SingleThreadedScheduler& scheduler)
+		{
+			return TraverseExMultiThreaded(nodes, id, preFn, postFn, childFn, scheduler);
+		}
+	} scheduler;
+
+	return TraverseExMultiThreaded(nodes, id, preFn, postFn, childFn, scheduler);
+}
+
+template <typename _NodeRefT, typename _FnPre, typename _FnPost, typename _ChildFn>
+TraversalState Traverse(const BasicGraph<_NodeRefT>& graph, _FnPre preFn, _FnPost postFn, _ChildFn childFn, bool forward = false)
+{
+	auto* wavefront = forward ? &graph.InputNodes : &graph.OutputNodes;
+	TraversalState state = TraversalState::eSuccess;
+
+	for (auto ID : *wavefront)
+	{
+		state = TraverseEx(graph.Nodes, ID, preFn, postFn, childFn);
+
+		if (state == TraversalState::eQuit)
+			return state;
+	}
+
+	return state;
+}
+
+template <typename _NodeRefT, typename _FnPre, typename _FnPost, typename _ChildFn, typename _Scheduler>
+TraversalState TraverseMultiThreaded(const BasicGraph<_NodeRefT>& graph, _FnPre preFn, _FnPost postFn, _ChildFn childFn, _Scheduler scheduler, bool forward = false)
+{
+	auto* wavefront = forward ? &graph.InputNodes : &graph.OutputNodes;
+
+	std::vector<std::remove_reference_t<decltype(scheduler(graph.Nodes, NodeID(), preFn, postFn, childFn, scheduler))>> futures{};
+
+	futures.reserve(wavefront->size());
+
+	for (auto ID : *wavefront)
+	{
+		futures.emplace_back(scheduler(graph.Nodes, ID, preFn, postFn, childFn, scheduler));
+	}
+
+	for (size_t idx = 0; idx < wavefront->size(); idx++)
+	{
+		auto state = futures[idx].get();
+
+		if (state == TraversalState::eQuit)
+			return state;
+	}
+
+	return TraversalState::eQuit;
+}
+
+template <typename _NodeRefT, typename _CloneFn, typename _ChildFn>
+std::tuple<NodeID, TraversalState> CloneEx(std::map<NodeID, _NodeRefT>& nodes, const std::map<NodeID, _NodeRefT>& srcNodes, Aqua::Exec::NodeID id, _CloneFn cloneFn, _ChildFn childFn)
+{
+	auto [rdm, state] = cloneFn(id);
+
+	if (state != Aqua::Exec::TraversalState::eSuccess)
+		return { rdm, state };
+
+	// expecting a Wavefront as the field containing 
+	// the children node ids
+	auto graphChildren = childFn(srcNodes.at(id));
+
+	auto& children = childFn(nodes[rdm]);
+	children.clear();
+
+	for (auto ID : graphChildren)
+	{
+		auto [childID, childState] = CloneEx(nodes, srcNodes, ID, cloneFn, childFn);
+
+		children.push_back(childID);
+
+		if (childState == TraversalState::eQuit)
+			return { rdm, childState };
+	}
+
+	return { rdm, state };
+}
+
+template <typename _NodeRefT, typename _CloneFn, typename _ChildFn>
+Aqua::Exec::BasicGraph<_NodeRefT> Clone(const Aqua::Exec::BasicGraph<_NodeRefT>& calcGraph, _CloneFn cloneFn, _ChildFn childFn)
+{
+	Aqua::Exec::BasicGraph<_NodeRefT> newGraph{};
+
+	for (auto& IDs : calcGraph.OutputNodes)
+	{
+		auto [rdm, state] = CloneEx(newGraph.Nodes, calcGraph.Nodes, IDs, [&cloneFn, &newGraph](NodeID id) { return cloneFn(newGraph, id); }, childFn);
+
+		newGraph.OutputNodes.push_back(rdm);
+	}
+
+	return newGraph;
+}
 
 template <typename _NodeRefT>
 void AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Update() const
@@ -65,7 +217,7 @@ typename AQUA_NAMESPACE::EXEC_NAMESPACE::BasicGraph<_NodeRefT>::Executable AQUA_
 
 	for (const auto& path : OutputNodes)
 	{
-		InsertNode(list, path, Nodes.at(path));
+		InsertNode(traversalStates, list, path, Nodes.at(path));
 	}
 
 	return list;

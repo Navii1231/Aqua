@@ -4,6 +4,7 @@
 #include "../Material/MaterialInstance.h"
 
 #include "TraceSession.h"
+#include "../Utils/Random.h"
 
 AQUA_BEGIN
 PH_BEGIN
@@ -78,14 +79,7 @@ struct ExecutionInfo
 	vkLib::CommandBufferAllocator CmdAlloc;
 
 	// Random stuff...
-	std::uniform_int_distribution<uint32_t> UniformDistribution;
-
-	std::random_device RandomDevice;
-	std::mt19937 RandomEngine;
-
-	// Init random stuff...
-	ExecutionInfo()
-		: RandomDevice(), RandomEngine(RandomDevice()) {}
+	UniformInts<uint32_t> RNG;
 };
 
 PH_END

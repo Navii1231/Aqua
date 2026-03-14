@@ -96,7 +96,7 @@ public:
 
 	// todo: the same problem occurring in the upload renderables
 	// the working class starts a mutiny
-	AQUA_API void IssueDrawCall(); // we're free to issue the draw call here
+	AQUA_API void Draw(); // we're free to issue the draw call here
 
 	// waits for the renderer to become idle
 	AQUA_API vk::Result WaitIdle(std::chrono::nanoseconds timeOut = std::chrono::nanoseconds::max());

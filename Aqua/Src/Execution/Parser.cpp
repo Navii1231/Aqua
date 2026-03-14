@@ -70,6 +70,7 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::KernelExtractions AQUA_NAMESPACE::EXEC_NAMESPACE
 		// looking for resource declarations, or function definitions
 		lexer.SetWhiteSpacesAndDelimiters(coarseWhiteSpaces, coarseDelimiters);
 
+		// first we skip all the comments
 		if (*lexer == "/")
 		{
 			if (lexer[lexer.GetPosition() + 1] == '/')
@@ -87,7 +88,7 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::KernelExtractions AQUA_NAMESPACE::EXEC_NAMESPACE
 		}
 
 		// here we use a small lookahead to identify the construct type
-		// could be done with shift-reduce parsing, matching the patterns
+		// could be done with shift-reduce parsing, or by matching the patterns
 		ConstructQualifier qualifier = IdentifyConstructQualifier(lexer);
 
 		FunctionNode funcNode{};
@@ -225,9 +226,7 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::StructDefNode AQUA_NAMESPACE::EXEC_NAMESPACE::GL
 	node.Typename = lexer++;
 
 	Expect(lexer++ == "{", "expecting '{' after struct declaration");
-
 	ParseStructBody(node.Body, lexer);
-
 	Expect(*(++lexer) == ";", "missing semicolon after struct declaration");
 
 	return node;

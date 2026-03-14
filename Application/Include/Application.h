@@ -22,16 +22,6 @@ struct ApplicationCreateInfo
 	bool EnableValidationLayers = false;
 };
 
-struct CameraMovementKeys
-{
-	ImGuiKey Forward           = ImGuiKey_W;
-	ImGuiKey Backward          = ImGuiKey_S;
-	ImGuiKey Left              = ImGuiKey_A;
-	ImGuiKey Right             = ImGuiKey_D;
-	ImGuiKey Up                = ImGuiKey_E;
-	ImGuiKey Down              = ImGuiKey_Q;
-};
-
 inline vk::Bool32 DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
 	vk::DebugUtilsMessageTypeFlagsEXT type, const std::string& message)
 {
@@ -80,10 +70,6 @@ class Application
 public:
 	Application(const ApplicationCreateInfo& info);
 
-	virtual bool OnStart() = 0;
-	virtual bool OnUpdate(std::chrono::nanoseconds elaspedTime) = 0;
-	virtual bool OnUIUpdate(std::chrono::nanoseconds elaspedTime) { return true; }
-
 	void Run();
 	bool IsRunning() const { return mRunning.load(); }
 
@@ -91,7 +77,24 @@ public:
 	void RemoveLayer(size_t whichOne = 0);
 	void SwapLayers(size_t first, size_t second);
 
+	void SetDefaultEventCallbacks();
+
+	bool InvokeFramebufferCallback(const glm::ivec2& position)
+	{ return InvokeEvents(&Layer::FramebufferCallbackHelper, position); }
+
+	bool InvokeKeyCallback(GLFWKeyAction action, int key, int mods, int scancode)
+	{ return InvokeEvents(&Layer::KeyCallbackHelper, action, key, mods, scancode); }
+
+	bool InvokeCharCallback(uint32_t par) { return InvokeEvents(&Layer::CharCallbackHelper, par); }
+	bool InvokeMouseButtonCallback(GLFWKeyAction action, int button, int scancode) { return InvokeEvents(&Layer::MouseButtonCallbackHelper, action, button, scancode); }
+	bool InvokeWindowPositionCallback(const glm::ivec2& position) { return InvokeEvents(&Layer::WindowPositionCallbackHelper, position); }
+	bool InvokeWindowCloseCallback() { return InvokeEvents(&Layer::WindowCloseCallbackHelper); }
+	bool InvokeCursorPosCallback(const glm::ivec2& position) { return InvokeEvents(&Layer::CursorPosCallbackHelper, position); }
+	bool InvokeScrollCallback(const glm::ivec2& off) { return InvokeEvents(&Layer::ScrollCallbackHelper, off); }
+
+	std::shared_ptr<vkLib::Context> GetContext() const { return mContext; }
 	Aqua::SharedRef<Layer> GetLayer(size_t whichOne) const { return mLayers[whichOne]; }
+	OpenGLWindow* GetWindow() const { return mWindow.get(); }
 
 	std::filesystem::path GetAssetDirectory() const { return std::filesystem::absolute(mCreateInfo.AssetDirectory); }
 
@@ -134,36 +137,24 @@ private:
 private:
 	bool InvokeStart();
 	bool InvokeUpdate(std::chrono::nanoseconds timer);
+
+	template <typename Fn, typename ...Args>
+	bool InvokeEvents(Fn&& eventFn, Args&& ...args)
+	{
+		// invoking event from top to bottom layer
+
+		for (auto layerIt = mLayers.rbegin(); layerIt != mLayers.rend(); layerIt++)
+		{
+			auto& layer = **layerIt;
+			
+			bool blocked = (layer.*eventFn)(std::forward<Args>(args)...);
+
+			if (blocked)
+				return true;
+		}
+
+		return false;
+	}
 };
 
 __declspec(selectany) Application* Application::sApplicationInstance = nullptr;
-
-template <typename _Camera>
-Aqua::CameraMovementFlags Application::MoveCamera(_Camera& camera, std::chrono::nanoseconds elaspedTime, bool allowOrientation /*= true*/, const CameraMovementKeys& keys /*= {}*/)
-{
-	if (!ImGui::IsWindowHovered())
-		return {};
-
-	Aqua::CameraMovementFlags movement;
-
-	auto addMovement = [&movement](ImGuiKey key, Aqua::CameraMovement direction)
-		{
-			if (ImGui::IsKeyDown(key))
-			{
-				movement.SetFlag(direction);
-			}
-		};
-
-	addMovement(keys.Forward, Aqua::CameraMovement::eForward);
-	addMovement(keys.Backward, Aqua::CameraMovement::eBackward);
-	addMovement(keys.Left, Aqua::CameraMovement::eLeft);
-	addMovement(keys.Right, Aqua::CameraMovement::eRight);
-	addMovement(keys.Up, Aqua::CameraMovement::eUp);
-	addMovement(keys.Down, Aqua::CameraMovement::eDown);
-
-	auto mousePosition = ImGui::GetMousePos();
-
-	camera.OnUpdate(elaspedTime, movement, { mousePosition.x, mousePosition.y }, allowOrientation && ImGui::IsMouseDown(ImGuiMouseButton_Left));
-
-	return movement;
-}

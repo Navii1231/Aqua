@@ -69,7 +69,7 @@ struct RendererConfig
 	// Execution stuff...
 	// characterized by geometry buffer and material arrays
 	EXEC_NAMESPACE::Ensemble mRenderingPipeline; // combines front, shading and backend
-	EXEC_NAMESPACE::GraphList mDrawList;
+	EXEC_NAMESPACE::Graph::Executable mDrawList;
 
 	DeferredPipeline mDeferredPipeline;
 	SkyboxPipeline mSkyboxPipeline;
@@ -409,7 +409,7 @@ void AQUA_NAMESPACE::Renderer::PrepareMaterialNetwork()
 	mConfig->mFrontEnd.SetModels(mConfig->mRenderableManagerie.GetModels());
 	mConfig->mBackEnd.SetModels(mConfig->mRenderableManagerie.GetModels());
 
-	auto shadingNetwork = PrepareShadingNetwork();
+ 	auto shadingNetwork = PrepareShadingNetwork();
 
 	mConfig->mRenderingPipeline = EXEC_NAMESPACE::Ensemble::Flatten(EXEC_NAMESPACE::Ensemble::MakeSeq(mConfig->mCtx, { mConfig->mFrontEnd.CreateGraph(), shadingNetwork, mConfig->mBackEnd.CreateGraph() }));
 
@@ -484,7 +484,7 @@ void AQUA_NAMESPACE::Renderer::UpdateDescriptors()
 	mConfig->mRenderingPipeline.Update();
 }
 
-void AQUA_NAMESPACE::Renderer::IssueDrawCall()
+void AQUA_NAMESPACE::Renderer::Draw()
 {
 	// need a way to sync with the upload renderables routine
 	EXEC_NAMESPACE::Execute(mConfig->mDrawList, mConfig->mDrawWorkers);
@@ -581,62 +581,61 @@ Aqua::Exec::Graph AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 	// the sky box
 	draft.SubmitOperation(shadingIdx + 2);
 
-	auto graph = *draft.Construct({ shadingIdx + 2 });
-
 	for (const auto& rawMaterial : mConfig->mRenderableManagerie.GetForwardMaterials())
 	{
-		graph.InsertOperation(mConfig->mCtx, forwardIdxBegin, rawMaterial.Op);
-		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[forwardIdxBegin++]).OpID = Core::MaterialInfo::sMatTypeID;
+		draft[forwardIdxBegin] = rawMaterial.Op;
+		draft[forwardIdxBegin++].OpID = Core::MaterialInfo::sMatTypeID;
 	}
 
 	for (const auto& rawMaterial : mConfig->mRenderableManagerie.GetDeferredMaterials())
 	{
-		graph.InsertOperation(mConfig->mCtx, deferIdxBegin, rawMaterial.Op);
-		ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[deferIdxBegin++]).OpID = Core::MaterialInfo::sMatTypeID;
+		draft[deferIdxBegin] = rawMaterial.Op;
+		draft[deferIdxBegin++].OpID = Core::MaterialInfo::sMatTypeID;
 	}
 
 	// todo: a bit inefficient since the geometry is relatively fixed for each material
-	graph.InsertPipeOp(0, mConfig->mDeferredPipeline);
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).OpID = RendererConfig::sGBufferID;
+	// I introduced a bug here when I was refactoring the code previously
 
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).Fn =
-		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::GenericNode* op)
-	{
-		EXEC_NAMESPACE::CBScope executioner(cmds);
+	draft[0].OpID = RendererConfig::sGBufferID;
+	draft.SubmitPipeline(0, mConfig->mDeferredPipeline);
 
-		auto& pipeline = *op->GFX;
-
-		pipeline.Begin(cmds);
-
-		pipeline.Activate();
-		pipeline.DrawIndexed(0, 0, 0, 1);
-
-		pipeline.End();
-	};
-
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[0]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
-	{
-		auto& pipeline = *reinterpret_cast<DeferredPipeline*>(GetRefAddr(op->GFX));
-
-		pipeline.SetClearDepthStencilValues(1.0f, 0);
-
-		pipeline.SetClearColorValues(0, { 1.0f, 0.0f, 1.0f, 1.0f });
-
-		VertexFactory vertFac = config->mRenderableManagerie.GetVertexFactory();
-
-		// Fetching data from the vertex factory
-		for (const auto& [idx, binding] : config->mRenderableManagerie.GetVertexBindingInfo())
+	draft[0].Fn = [this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::GenericNode* op)
 		{
-			pipeline.SetVertexBuffer(idx, vertFac[binding.Name]);
-		}
+			EXEC_NAMESPACE::CBScope executioner(cmds);
 
-		pipeline.SetIndexBuffer(vertFac.GetIndexBuffer());
+			auto& pipeline = *op->GFX;
 
-		pipeline.UpdateCamera(config->mCamera);
-		pipeline.UpdateModels(config->mRenderableManagerie.GetModels());
-	};
+			pipeline.Begin(cmds);
 
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[1]).Fn = [this](vk::CommandBuffer buffer,
+			pipeline.Activate();
+			pipeline.DrawIndexed(0, 0, 0, 1);
+
+			pipeline.End();
+		};
+
+	draft[0].UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
+		{
+			auto& pipeline = *reinterpret_cast<DeferredPipeline*>(GetRefAddr(op->GFX));
+
+			pipeline.SetClearDepthStencilValues(1.0f, 0);
+
+			pipeline.SetClearColorValues(0, { 1.0f, 0.0f, 1.0f, 1.0f });
+
+			VertexFactory vertFac = config->mRenderableManagerie.GetVertexFactory();
+
+			// Fetching data from the vertex factory
+			for (const auto& [idx, binding] : config->mRenderableManagerie.GetVertexBindingInfo())
+			{
+				pipeline.SetVertexBuffer(idx, vertFac[binding.Name]);
+			}
+
+			pipeline.SetIndexBuffer(vertFac.GetIndexBuffer());
+
+			pipeline.UpdateCamera(config->mCamera);
+			pipeline.UpdateModels(config->mRenderableManagerie.GetModels());
+		};
+
+	draft[1].Fn = [this](vk::CommandBuffer buffer,
 		const EXEC_NAMESPACE::GenericNode* op)
 		{
 			EXEC_NAMESPACE::CBScope executioner(buffer);
@@ -644,9 +643,9 @@ Aqua::Exec::Graph AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 			mConfig->mColorClear(buffer, mConfig->mShadingbuffer.GetColorAttachments().front(), { 0.0f, 1.0f, 0.0f, 0.0f });
 		};
 
-	graph.InsertPipeOp(shadingIdx + 2, mConfig->mSkyboxPipeline);
+	draft.SubmitPipeline(shadingIdx + 2, mConfig->mSkyboxPipeline);
 
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[shadingIdx + 2]).Fn =
+	draft[shadingIdx + 2].Fn =
 		[this](vk::CommandBuffer cmds, const EXEC_NAMESPACE::GenericNode* op)
 	{
 		EXEC_NAMESPACE::CBScope executioner(cmds);
@@ -664,47 +663,50 @@ Aqua::Exec::Graph AQUA_NAMESPACE::Renderer::PrepareShadingNetwork()
 		pipeline.End();
 	};
 
-	ConvertNode<EXEC_NAMESPACE::GenericNode>(graph[shadingIdx + 2]).UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
+	draft[shadingIdx + 2].UpdateFn = [config](EXEC_NAMESPACE::GenericNode* op)
 		{
-		auto& pipeline = *reinterpret_cast<SkyboxPipeline*>(GetRefAddr(op->GFX));
+			auto& pipeline = *reinterpret_cast<SkyboxPipeline*>(GetRefAddr(op->GFX));
 
 			pipeline.SetClearDepthStencilValues(1.0f, 0);
-			
+
 			pipeline.UpdateCamera(config->mCamera);
 			pipeline.UpdateEnvironmentTexture(*config->mEnv->GetSkybox(), config->mEnv->GetSampler());
 		};
 
-	return graph;
+	return *draft.Construct({ shadingIdx + 2 });
 }
 
 void AQUA_NAMESPACE::Renderer::LinkShaderExecutionGraphs(EXEC_NAMESPACE::GenericDraft& draft, EXEC_NAMESPACE::NodeID forwardID, EXEC_NAMESPACE::NodeID deferID)
 {
 	// start and end points of each material series
-	std::vector<std::pair<EXEC_NAMESPACE::NodeID, EXEC_NAMESPACE::NodeID>> endpoints;
+	std::vector<EXEC_NAMESPACE::NodeID> links;
 
-	auto insertEndPoints = [this, &endpoints](EXEC_NAMESPACE::NodeID matBegin,
+	auto insertLinks = [this, &links](EXEC_NAMESPACE::NodeID matBegin,
 		const std::vector<Core::MaterialInfo>& materials)
-	{
-		if (!materials.empty())
 		{
-			auto& syncPoint = endpoints.emplace_back(matBegin, matBegin + materials.size() - 1);
-		}
-	};
+			if (!materials.empty())
+			{
+				auto& syncPoint = links.emplace_back(matBegin);
+			}
+		};
 
-	insertEndPoints(deferID, mConfig->mRenderableManagerie.GetDeferredMaterials());
-	insertEndPoints(forwardID, mConfig->mRenderableManagerie.GetForwardMaterials());
+	auto deferMats = mConfig->mRenderableManagerie.GetDeferredMaterials();
+	auto forMats = mConfig->mRenderableManagerie.GetForwardMaterials();
 
-	for (size_t i = 1; i < endpoints.size(); i++)
+	insertLinks(forwardID, deferMats);
+	insertLinks(deferID, forMats);
+
+	for (size_t i = 1; i < links.size(); i++)
 	{
-		draft.Connect(endpoints[i - 1].second, endpoints[i].first,
+		draft.Connect(links[i] - 1, links[i],
 			vk::PipelineStageFlagBits::eFragmentShader);
 	}
 
-	if (!endpoints.empty())
+	if (!links.empty())
 	{
-		draft.Connect(0, endpoints.front().first, vk::PipelineStageFlagBits::eTopOfPipe);
-		draft.Connect(1, endpoints.front().first, vk::PipelineStageFlagBits::eTopOfPipe);
-		draft.Connect(endpoints.back().second, draft.GetOpCount(),
+		draft.Connect(0, links.front(), vk::PipelineStageFlagBits::eTopOfPipe);
+		draft.Connect(1, links.front(), vk::PipelineStageFlagBits::eTopOfPipe);
+		draft.Connect(forwardID + deferMats.size() + forMats.size() - 1, draft.GetOpCount(),
 			vk::PipelineStageFlagBits::eFragmentShader);
 	}
 	else

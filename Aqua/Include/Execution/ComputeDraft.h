@@ -9,7 +9,7 @@ EXEC_BEGIN
 // mimics CUDA kernels
 // only accepts modified GLSL shaders
 // generates a network of compute pipelines with shared resources
-class ComputeDraft : public Draft<std::string>
+class ComputeDraft : public Draft<std::string, vk::PipelineStageFlags>
 {
 public:
 	ComputeDraft() = default;
@@ -19,10 +19,10 @@ public:
 
 	void SetCtx(vkLib::Context ctx) { mCtx = ctx; }
 
-	AQUA_API std::expected<Graph, GraphError> Construct(const std::vector<NodeID>& probes) const;
+	AQUA_API std::expected<Graph, GraphError> Construct(const std::vector<NodeID>& probes, int threadCount = 1) const;
 
 private:
-	vkLib::Context mCtx;
+	vkLib::Context mCtx;          
 
 private:
 	vkLib::PShader ConstructShader(const KernelExtractions& exts) const;

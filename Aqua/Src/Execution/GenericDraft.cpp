@@ -18,14 +18,18 @@ void AQUA_NAMESPACE::EXEC_NAMESPACE::GenericDraft::Clear()
 
 std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError>
 	AQUA_NAMESPACE::EXEC_NAMESPACE::GenericDraft::Construct(
-	const std::vector<NodeID>& pathEnds) const
+	const std::vector<NodeID>& pathEnds, int threadCount) const
 {
-	using NodeInfo = typename MyDraftType::NodeInfo<NodeRef>;
+	Graph graph{};
+	graph.OutputNodes = pathEnds;
 
-	return _ConstructEx<NodeRef>(pathEnds, true, [this](NodeID nodeId, const GenericNode& node)->NodeRef
+	auto frontErr = _ConstructEx<NodeRef>(pathEnds, true, [this, &graph](NodeID nodeId, const GenericNode& node)->NodeRef
 		{
-			return MakeRef(node);
-		}, [this](const NodeInfo& from, const NodeInfo& to, vk::PipelineStageFlags stageFlags)
+			if (graph.Nodes.find(nodeId) == graph.Nodes.end())
+				graph.Nodes[nodeId] = MakeRef(node);
+
+			return graph.Nodes[nodeId];
+		}, [this, &graph](const NodeInfo& from, const NodeInfo& to, vk::PipelineStageFlags stageFlags)
 			{
 				Dependency dependency{};
 				dependency.SetIncomingOP(from.ID);
@@ -33,9 +37,16 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 				dependency.SetSignal(mCtx.CreateSemaphore());
 				dependency.SetWaitPoint(stageFlags);
 
-				from.Node->AddOutputConnection(dependency);
-				to.Node->AddInputConnection(dependency);
-			});
+				graph.Nodes[from.ID]->AddOutputConnection(dependency);
+				graph.Nodes[to.ID]->AddInputConnection(dependency);
+			}, threadCount);
+
+		if (!frontErr)
+			return std::unexpected<GraphError>(frontErr.error());
+
+		graph.InputNodes = *frontErr;
+
+		return graph;
 }
 
 void AQUA_NAMESPACE::EXEC_NAMESPACE::SerializeExecutionWavefronts(GenericDraft& builder, const std::vector<Wavefront>& layers)

@@ -16,8 +16,8 @@ EXEC_BEGIN
 */
 
 // this parser could be used in neural networks only...
-// as for general execution graphs, we must keep the compute 
-// pipeline execution as general as possible
+// as for general execution graphs, keeping the compute 
+// pipeline execution as general as possible is necessary
 // Look into the Scriptures/ExecutionModel.txt for more information about the parsing process
 class Parser
 {

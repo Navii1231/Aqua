@@ -322,10 +322,7 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ConstructPostProcessExec(EXEC_
 
 uint32_t AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::GetRandomNumber()
 {
-	uint32_t Random = mExecutorInfo->UniformDistribution(mExecutorInfo->RandomEngine);
-	_STL_ASSERT(Random != 0, "Random number can't be zero!");
-
-	return Random;
+	return mExecutorInfo->RNG();
 }
 
 AQUA_NAMESPACE::PH_FLUX_NAMESPACE::TraceResult AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::StepImpl()
@@ -504,7 +501,7 @@ void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::RecordPostProcess(vk::CommandB
 	mExecutorInfo->PipelineResources.PostProcessor.End();
 }
 
-void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ExecuteGraphList(const EXEC_NAMESPACE::GraphList& execList)
+void AQUA_NAMESPACE::PH_FLUX_NAMESPACE::Executor::ExecuteGraphList(const EXEC_NAMESPACE::Graph::Executable& execList)
 {
 	auto executor = mExecutorInfo->Workers;
 

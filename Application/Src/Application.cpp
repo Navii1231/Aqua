@@ -53,7 +53,6 @@ void Application::Run()
 		nextSlice = clock.now() + timeSlice;
 
 		InvokeUpdate(duration);
-		OnUIUpdate(duration);
 		mWindow->PollUserEvents();
 
 		duration = clock.now() - prev;
@@ -79,6 +78,25 @@ void Application::RemoveLayer(size_t whichOne /*= 0*/)
 void Application::SwapLayers(size_t first, size_t second)
 {
 	std::swap(mLayers[first], mLayers[second]);
+}
+
+void Application::SetDefaultEventCallbacks()
+{
+	mWindow->SetFramebufferSizeCallback(std::bind(&Application::InvokeFramebufferCallback, this, std::placeholders::_1));
+
+	mWindow->SetMouseButtonCallback(std::bind(&Application::InvokeMouseButtonCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+
+	mWindow->SetKeyCallback(std::bind(&Application::InvokeKeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
+
+	mWindow->SetScrollCallback(std::bind(&Application::InvokeScrollCallback, this, std::placeholders::_1));
+
+	mWindow->SetCharCallback(std::bind(&Application::InvokeCharCallback, this, std::placeholders::_1));
+
+	mWindow->SetCursorPosCallback(std::bind(&Application::InvokeCursorPosCallback, this, std::placeholders::_1));
+
+	mWindow->SetWindowCloseCallback(std::bind(&Application::InvokeWindowCloseCallback, this));
+
+	mWindow->SetWindowPosCallback(std::bind(&Application::InvokeWindowPositionCallback, this, std::placeholders::_1));
 }
 
 void Application::CreateInstance(const ApplicationCreateInfo& info)
@@ -166,9 +184,6 @@ void Application::SetupContext(const ApplicationCreateInfo& info)
 
 bool Application::InvokeStart()
 {
-	if (!OnStart())
-		return false;
-
 	for (auto it = mLayers.rbegin(); it != mLayers.rend(); it++)
 	{
 		auto layer = *it;
@@ -183,14 +198,14 @@ bool Application::InvokeStart()
 
 bool Application::InvokeUpdate(std::chrono::nanoseconds timer)
 {
-	if (!OnUpdate(timer))
-		return false;
-
 	for (auto it = mLayers.rbegin(); it != mLayers.rend(); it++)
 	{
 		auto layer = *it;
 
 		if (!layer->OnUpdate(timer))
+			return false;
+
+		if (!layer->OnUIUpdate(timer))
 			return false;
 	}
 }

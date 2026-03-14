@@ -5,15 +5,19 @@
 
 #include "Utils/CompilerErrorChecker.h"
 
-std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::ComputeDraft::Construct(const std::vector<NodeID>& probes) const
+std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESPACE::GraphError> AQUA_NAMESPACE::EXEC_NAMESPACE::ComputeDraft::Construct(const std::vector<NodeID>& probes, int threadCount) const
 {
-	using MyNodeInfo = typename Draft<std::string>::NodeInfo<NodeRef>;
-
 	std::map<NodeID, KernelExtractions> allExts{};
 
-	auto graph = _ConstructEx<NodeRef>(probes, true, [this, &allExts](NodeID node, const std::string& kernel)->NodeRef
+	Graph graph{};
+	graph.OutputNodes = probes;
+
+	auto front = _ConstructEx<NodeRef>(probes, true, [this, &allExts, &graph](NodeID node, const std::string& kernel)->NodeRef
 		{
-			// this where we shall create our compute node
+			if (graph.Nodes.find(node) != graph.Nodes.end())
+				return graph.Nodes[node];
+
+			// this is where we shall create our compute node
 			KernelExtractions exts = GLSLParser(kernel, 440).Extract();
 			allExts[node] = exts;
 
@@ -21,21 +25,25 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 
 			auto success = InsertResources(*computeNode, exts);
 
+			graph.Nodes[node] = computeNode;
+
 			return computeNode;
-		}, [this](const MyNodeInfo& from, const MyNodeInfo& to)
+		}, [this, &graph](const NodeInfo& from, const NodeInfo& to, vk::PipelineStageFlags stageFlags)
 			{
 				Dependency dependency{};
 				dependency.SetIncomingOP(from.ID);
 				dependency.SetOutgoingOP(to.ID);
 				dependency.SetSignal(mCtx.CreateSemaphore());
-				dependency.SetWaitPoint(vk::PipelineStageFlagBits::eComputeShader);
+				dependency.SetWaitPoint(stageFlags);
 
-				from.Node->AddOutputConnection(dependency);
-				to.Node->AddInputConnection(dependency);
-			});
+				graph.Nodes[from.ID]->AddOutputConnection(dependency);
+				graph.Nodes[to.ID]->AddInputConnection(dependency);
+			}, threadCount);
 
-	if (!graph)
-		return std::unexpected(graph.error());
+	if (!front)
+		return std::unexpected(front.error());
+
+	graph.InputNodes = *front;
 
 	return graph;
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "../Core/AqCore.h"
 #include "../Core/SharedRef.h"
+#include "../Utils/UniqueIDGen.h"
 
 AQUA_BEGIN
 EXEC_BEGIN
@@ -10,12 +11,20 @@ EXEC_BEGIN
 struct GenericNode;
 
 using NodeID = uint64_t;
+using UniqueIDGen = BasicUniqueIDGen<NodeID>;
 
 enum class GraphTraversalState
 {
 	ePending                            = 0,
 	eVisiting                           = 1,
 	eVisited                            = 2,
+};
+
+enum class TraversalState
+{
+	eSuccess        = 0,
+	eQuit           = 1,
+	eSkip           = 2,
 };
 
 // todo: we might even allow multiple tasks at once in a single operation

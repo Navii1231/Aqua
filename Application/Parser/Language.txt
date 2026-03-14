@@ -1,0 +1,54 @@
+func --> function <name_of_the_function>(<args>)-><type_name> begin <stmts> end
+args --> <empty> | <type_name> (, <type_name>)+
+
+type: int, float and user types
+
+let's write an example
+
+traversing through the DAG
+
+struct user_type
+{
+	int x, y, z
+}
+
+shared_buffer<user_type> storageBuffer
+uniform_buffer<user_type> uniformBuffer
+
+function add(int a, int b)->int begin
+	return a + b
+end
+
+int a = 2
+int b = 3
+
+int result = add(a, b)
+
+the input is this piece of code
+but the output would be the IRCode --> BasicGraph<IRNodeRef>
+
+for DAG architecture
+
+Each node is a IRCode
+We have BasicGraph<IRCode> as the output
+
+Before we output BasicGraph<IRCode>, we need to optimize the DAG
+
+One optimization is horizontal compression
+Basically combining multiple identical parallel layers into a single operation
+That's a DAG level optimization
+
+The code level optimization will be done by the GLSL compiler
+
+matrix multiplication
+
+Alright, to support tolerance for horizontal compression, we'll support two types of buffers
+i.e. global_buffers and local_buffers
+
+A global buffer is shared across the DAG and perhaps will not 
+be able to be indexed from the compute invocation index system
+
+A local buffer is local to the GLSL compute shader and therefore
+can be indexed both by compute invocation index system and by literal indices
+
+This allows the horizontal compression on the global buffers

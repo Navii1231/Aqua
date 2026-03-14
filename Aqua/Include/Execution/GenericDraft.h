@@ -31,7 +31,7 @@ public:
 
 	// Redundant operations that do no contribute to the final outcome are excluded
 	// convergent on the probe node
-	AQUA_API std::expected<Graph, GraphError> Construct(const std::vector<NodeID>& pathEnds) const;
+	AQUA_API std::expected<Graph, GraphError> Construct(const std::vector<NodeID>& pathEnds, int threadCount = 1) const;
 
 	const std::map<NodeID, GenericNode>& GetOps() const { return GetNodes(); }
 	NodeID GetOpCount() const { return static_cast<NodeID>(GetNodeCount()); }
