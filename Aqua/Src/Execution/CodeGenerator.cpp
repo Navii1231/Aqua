@@ -56,11 +56,15 @@ std::string AQUA_NAMESPACE::EXEC_NAMESPACE::GLSLCodeGenerator::Generate() const
 		finalCode << *ConvertToGLSLString(func.ReturnType) << " " << func.Name << "(";
 
 		bool firstParam = true;
-		for (const auto& [paramName, type] : func.Parameters)
+
+		for (const auto& [paramName, parInfo] : func.Parameters)
 		{
+			auto [type, qualifier] = parInfo;
+
 			if (!firstParam)
 				finalCode << ", ";
-			finalCode << *ConvertToGLSLString(type) << " " << paramName;
+
+			finalCode << qualifier << " " << *ConvertToGLSLString(type) << " " << paramName;
 			firstParam = false;
 		}
 

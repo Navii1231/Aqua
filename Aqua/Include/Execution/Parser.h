@@ -7,7 +7,7 @@ AQUA_BEGIN
 EXEC_BEGIN
 
 /*
-* version string  (tick)
+* version string (tick)
 * resource declarations (buffers only for now)
 * push constants if there are any (from dependencies, meta data 
 	about parameter and translation buffer)

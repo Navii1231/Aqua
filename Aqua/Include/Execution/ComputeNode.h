@@ -95,7 +95,7 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::Node* AQUA_NAMESPACE::EXEC_NAMESPACE::ComputeNod
 {
 	ComputeNode* cloned = new ComputeNode(*this);
 
-	cloned->Cmp = Aqua::SharedRef<vkLib::ComputePipeline>(Aqua::Clone(ctx, Aqua::GetRefAddr(Cmp)));
+	cloned->Cmp = SharedRef<vkLib::ComputePipeline>(Clone(ctx, GetRefAddr(Cmp)));
 
 	// cloning dependencies
 	cloned->CloneDependencies(ctx, this);

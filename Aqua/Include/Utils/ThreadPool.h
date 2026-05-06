@@ -6,6 +6,8 @@
 
 AQUA_BEGIN
 
+#define OLDER_VERSION  0
+
 enum class ThreadPoolStatus
 {
 	eUnderloaded     = 0,
@@ -13,6 +15,7 @@ enum class ThreadPoolStatus
 };
 
 using ThreadFn = std::function<void()>;
+using ThreadInfos = std::map<std::thread::id, std::mutex*>;
 
 template <typename RetType>
 using PackagedTask = std::packaged_task<RetType()>;
@@ -36,6 +39,19 @@ SharedRef<PackagedTask<typename std::invoke_result<Fn, ARGS...>::type>> BindTask
 	});
 }
 
+/// characteristics a scheduler should have
+// it should accept arbitrary tasks and store them properly
+// one should be able to access those tasks according to certain strategy
+// so it should be something like
+/*
+* Scheduler scheduler;
+* scheduler.StoreTaskQueue(...);
+* scheduler.StoreTask(...);
+* we could use a multiple type of algorithms to access the "next" task
+* auto task = scheduler.GetNextTask();
+* whether a task can be interrupted in the middle by a user program is still debatable
+*/
+
 template <typename Fn, typename ...ARGS>
 struct TaskBinder
 {
@@ -56,106 +72,138 @@ struct TaskBinder
 	Future<RetType> GetFuture() const { return mTask->get_future().share(); }
 };
 
-struct ThreadPoolInfo
+inline void FillLocks(std::forward_list<std::unique_lock<std::mutex>>& locks, const ThreadInfos& threadInfos)
 {
-	std::queue<ThreadFn> mTasks;
-	std::atomic_uint64_t mTaskCount;
+	for (const auto& [ID, lock] : threadInfos)
+	{
+		locks.emplace_front(*lock);
+	}
+}
 
-	std::atomic_uint64_t mBusyThreadCount;
+template <bool _Bounded>
+class DefaultPolicy
+{
+public:
+	struct PolicyInfo
+	{
+		std::queue<ThreadFn> mTasks{};
+		std::atomic_uint64_t mTaskCount{};
+		ThreadInfos mThreadInfos{};
+	};
 
-	std::mutex mLock;
-	std::condition_variable mWorkerNotifier;
-	std::condition_variable mEmptyNotifier;
+public:
+	~DefaultPolicy() = default;
+	DefaultPolicy() : mInfo(MakeRef<PolicyInfo>()) {}
+
+	// the thread pool will make sure that this function is thread safe
+	void operator()(const ThreadInfos& ids)
+	{
+		mInfo->mThreadInfos = ids;
+	}
+
+	bool operator()(ThreadFn fn)
+	{
+		if constexpr (_Bounded)
+		{
+			if (mInfo->mTaskCount.load() >= mInfo->mThreadInfos.size())
+				return false;
+		}
+
+		mInfo->mTasks.push(fn);
+		mInfo->mTaskCount++;
+
+		return true;
+	}
+
+	ThreadFn operator()()
+	{
+		std::forward_list<std::unique_lock<std::mutex>> locks{};
+		FillLocks(locks, mInfo->mThreadInfos);
+
+		if (mInfo->mTasks.empty())
+			return {};
+
+		auto fn = mInfo->mTasks.front();
+
+		mInfo->mTasks.pop();
+		mInfo->mTaskCount--;
+
+		return fn;
+	}
+
+protected:
+	SharedRef<PolicyInfo> mInfo{};
 };
 
-struct ThreadExecutor
+using BoundedDefaultPolicy = DefaultPolicy<true>;
+using UnboundedDefaultPolicy = DefaultPolicy<false>;
+
+struct ThreadPoolInfo
+{
+	std::function<ThreadFn()> mScheduler{};
+	std::function<bool(ThreadFn)> mTaskManager{};
+	std::function<void(const ThreadInfos&)> mThreadInfoFunctor{};
+
+	std::atomic_uint64_t mTaskCount;
+
+	std::condition_variable mWorkerNotifier;
+	ThreadInfos mThreadInfos;
+};
+
+struct ThreadWorker
 {
 	SharedRef<ThreadPoolInfo> mPoolInfo;
 
 	std::thread mHandle;
 	std::atomic_bool mAlive = true;
+	mutable std::mutex mLock;
+	std::atomic<std::chrono::nanoseconds> mWaitTime = std::chrono::nanoseconds::max();
 
-	mutable std::atomic_uint64_t mTaskCount = 0;
-	mutable std::queue<ThreadFn> mTasks;
+	ThreadWorker(SharedRef<ThreadPoolInfo> poolInfo)
+		: mPoolInfo(poolInfo), mHandle(&ThreadWorker::Dispatch, this) {}
 
-	mutable std::mutex mEmptyLock{};
-	mutable std::condition_variable mEmptyNotifier{};
-
-	ThreadExecutor(SharedRef<ThreadPoolInfo> poolInfo)
-		: mPoolInfo(poolInfo), mHandle(&ThreadExecutor::Dispatch, this) {}
-
-	~ThreadExecutor() { mHandle.join(); }
-
-	ThreadExecutor(const ThreadExecutor&) = delete;
-	ThreadExecutor& operator=(const ThreadExecutor&) = delete;
-
-	inline void Dispatch() const;
-
-	inline ThreadFn GrabTask() const;
-	inline ThreadFn GrabTaskFromPool(std::queue<ThreadFn>& tasks, std::atomic_uint64_t& taskCount) const;
-
-	inline void NotifyOnBeingEmpty() const
+	~ThreadWorker()
 	{
-		std::scoped_lock locker(mPoolInfo->mLock);
-
-		if (mTaskCount.load() == 0)
-			mEmptyNotifier.notify_all();
-
-		if (mPoolInfo->mTaskCount.load() == 0)
-			mPoolInfo->mEmptyNotifier.notify_all();
-	}
-};
-
-// it's allocated by the thread pool but can later detach and exist independently
-class ThreadWorker
-{
-public:
-	ThreadWorker() = default;
-	inline ~ThreadWorker();
-
-	template <typename Fn, typename ...ARGS>
-	auto Enqueue(Fn&& fn, ARGS&&... args) -> Future<typename TaskBinder<Fn, ARGS...>::RetType>
-	{
-		TaskBinder<Fn, ARGS...> taskBinder(std::forward<Fn>(fn), std::forward<ARGS>(args)...);
-
 		{
-			std::scoped_lock locker(mPoolInfo->mLock);
-			InsertTask(taskBinder.GetThreadFn());
+			// the worker is about to be killed...
+			// so get the most out of it before it's gone
+			std::scoped_lock locker(mLock);
+
+			mAlive.store(false);
+			mPoolInfo->mWorkerNotifier.notify_all();
 		}
 
-		return taskBinder.GetFuture();
+		mHandle.join();
 	}
 
-	inline void Wait(std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max()) const
+	ThreadWorker(const ThreadWorker&) = delete;
+	ThreadWorker& operator=(const ThreadWorker&) = delete;
+
+	template <typename _Dur>
+	void SetWaitingTime(_Dur dur) { mWaitTime.store(dur); }
+
+	void Dispatch() const
 	{
-		std::unique_lock locker(mInfo->mEmptyLock);
-		mInfo->mEmptyNotifier.wait_for(locker, timeout, [this]()
+		// keep looping until the tasks remain or the worker is alive
+		while (mAlive.load() || mPoolInfo->mTaskCount.load())
+		{
+			// access the lock
 			{
-				return mInfo->mTasks.empty();
-			});
+				std::unique_lock locker(mLock);
+				mPoolInfo->mWorkerNotifier.wait_for(locker, mWaitTime.load(), [this]()
+					{
+						// either we've a remaining task or the worker is no longer alive
+						return mPoolInfo->mTaskCount.load() || !mAlive.load();
+					});
+			}
+
+			auto fn = mPoolInfo->mScheduler();
+			mPoolInfo->mTaskCount.fetch_sub(bool(fn));
+
+			if (fn)
+				fn();
+		}
 	}
-
-	bool IsEmpty() const { return mInfo->mTaskCount.load() == 0; }
-
-	std::thread::id GetThreadID() const { return mInfo->mHandle.get_id(); }
-
-private:
-	SharedRef<ThreadExecutor> mInfo;
-	SharedRef<ThreadPoolInfo> mPoolInfo;
-
-	// the worker thread can consist of its own tasks
-	// those tasks are always prioritized
-
-private:
-	ThreadWorker(SharedRef<ThreadPoolInfo> poolInfo)
-		: mPoolInfo(poolInfo)
-	{
-		mInfo = MakeRef<ThreadExecutor>(poolInfo);
-	}
-
-	inline void InsertTask(const ThreadFn& fn);
-
-	friend class ThreadPool;
 };
 
 class ThreadPool
@@ -164,19 +212,23 @@ public:
 	inline ThreadPool();
 	inline explicit ThreadPool(uint32_t threadCount);
 
-	~ThreadPool() {}
+	~ThreadPool() { Clear(); }
 
-	inline ThreadWorker Create();
-
-	template <typename Fn, typename ...ARGS>
-	ThreadWorker Create(Fn&& fn, ARGS&&... args)
-	{
-		auto worker = Create();
-		worker.Enqueue(std::forward<Fn>(fn), std::forward<ARGS>(args)...);
-		return worker;
-	}
-
+	inline std::thread::id Create();
 	inline void Free(uint32_t idx);
+
+	template <typename _Scheduler>
+	void SetScheduler(_Scheduler scheduler)
+	{
+		mInfo->mThreadInfoFunctor = scheduler;
+		mInfo->mScheduler = scheduler;
+		mInfo->mTaskManager = scheduler;
+
+		std::forward_list<std::unique_lock<std::mutex>> locks;
+		FillLocks(locks, mInfo->mThreadInfos);
+
+		scheduler(mInfo->mThreadInfos);
+	}
 
 	template <typename Fn, typename ...ARGS>
 	auto Enqueue(Fn&& fn, ARGS&&... args) -> Future<typename TaskBinder<Fn, ARGS...>::RetType>
@@ -184,172 +236,119 @@ public:
 		TaskBinder<Fn, ARGS...> taskBinder(std::forward<Fn>(fn), std::forward<ARGS>(args)...);
 
 		{
-			std::scoped_lock locker(mInfo->mLock);
-			InsertTask(taskBinder.GetThreadFn());
+			std::forward_list<std::unique_lock<std::mutex>> locks{};
+			FillLocks(locks, mInfo->mThreadInfos);
+
+			if (!InsertTask(taskBinder.GetThreadFn()))
+				return {};
 		}
 
 		return taskBinder.GetFuture();
 	}
 
-	template <typename Fn, typename ...ARGS>
-	auto EnqueueOnlyIfFree(Fn&& fn, ARGS&&... args) -> std::expected<Future<typename TaskBinder<Fn, ARGS...>::RetType>, ThreadPoolStatus>
+	void Clear()
 	{
-		std::scoped_lock locker(mInfo->mLock);
+		size_t size = mWorkers.size();
 
-		if (IsOverloaded())
-			return std::unexpected(ThreadPoolStatus::eOverloaded);
-
-		TaskBinder<Fn, ARGS...> taskBinder(std::forward<Fn>(fn), std::forward<ARGS>(args)...);
-		InsertTask(taskBinder.GetThreadFn());
-		return taskBinder.GetFuture();
+		for (; size != 0; size--)
+		{
+			Free(0);
+		}
 	}
-
-	ThreadWorker operator[](uint32_t idx) { return mWorkers[idx]; }
-	void Clear() { mWorkers.clear(); }
-
-	bool IsOverloaded() const { return mInfo->mBusyThreadCount.load() >= mWorkers.size(); }
-
-	inline void Wait(std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max()) const;
 
 	uint32_t GetWorkerCount() const { return static_cast<uint32_t>(mWorkers.size()); }
 
+	const ThreadInfos& GetThreadIDs() const { return mInfo->mThreadInfos; }
+
 private:
 	SharedRef<ThreadPoolInfo> mInfo;
-	std::vector<ThreadWorker> mWorkers;
+	std::map<std::thread::id, SharedRef<ThreadWorker>> mWorkers;
 
 private:
-	inline void InsertTask(const std::function<void()>& task);
+	inline bool InsertTask(const ThreadFn& task);
+
+	inline std::thread::id CreateImpl();
+	inline void FreeImpl(std::thread::id idx);
+
+	void SetDefaultExecutionPolicy()
+	{
+		DefaultPolicy<false> policy{};
+		SetScheduler(policy);
+	}
 };
 
-AQUA_END
-
-AQUA_NAMESPACE::ThreadWorker::~ThreadWorker()
-{
-	if (mInfo.use_count() != 1)
-		return;
-
-	// the worker is about to be killed...
-	// so get the most out of it before it's gone
-
-	std::scoped_lock locker(mPoolInfo->mLock);
-
-	mInfo->mAlive.store(false);
-	mPoolInfo->mWorkerNotifier.notify_all();
-}
-
-void AQUA_NAMESPACE::ThreadExecutor::Dispatch() const
-{
-	// keep looping until the tasks remain or the worker is alive
-	while (mAlive.load() || mPoolInfo->mTaskCount.load() || mTaskCount.load())
-	{
-		ThreadFn threadFn{};
-
-		{
-			// access the lock
-			std::unique_lock locker(mPoolInfo->mLock);
-			mPoolInfo->mWorkerNotifier.wait_for(locker, std::chrono::nanoseconds::max(), [this]()
-			{
-				// either we've a remaining task or the worker is no longer alive
-				return mPoolInfo->mTaskCount.load() || mTaskCount.load() != 0 || !mAlive.load();
-			});
-
-			// try grabbing the task
-			threadFn = GrabTask();
-		}
-
-		// if the task is available, execute it
-		if (threadFn)
-		{
-			threadFn();
-			// unbusy thread
-			mPoolInfo->mBusyThreadCount.fetch_sub(1);
-		}
-		
-		NotifyOnBeingEmpty();
-	}
-}
-
-AQUA_NAMESPACE::ThreadFn AQUA_NAMESPACE::ThreadExecutor::GrabTask() const
-{
-	auto task = GrabTaskFromPool(mTasks, mTaskCount);
-
-	if (task)
-		return task;
-
-	return GrabTaskFromPool(mPoolInfo->mTasks, mPoolInfo->mTaskCount);
-}
-
-AQUA_NAMESPACE::ThreadFn AQUA_NAMESPACE::ThreadExecutor::GrabTaskFromPool(
-	std::queue<ThreadFn>& tasks, std::atomic_uint64_t& taskCount) const
-{
-	if (tasks.empty())
-		return {};
-
-	auto task = tasks.front();
-	tasks.pop();
-
-	taskCount--;
-
-	return task;
-}
-
-void AQUA_NAMESPACE::ThreadWorker::InsertTask(const ThreadFn& fn)
-{
-	mInfo->mTasks.push(fn);
-	mInfo->mTaskCount++;
-	mPoolInfo->mBusyThreadCount++; // busy thread
-	mPoolInfo->mWorkerNotifier.notify_all();
-}
-
-AQUA_NAMESPACE::ThreadPool::ThreadPool()
+ThreadPool::ThreadPool()
 {
 	mInfo = MakeRef<ThreadPoolInfo>();
+	SetDefaultExecutionPolicy();
 }
 
-AQUA_NAMESPACE::ThreadPool::ThreadPool(uint32_t threadCount)
+ThreadPool::ThreadPool(uint32_t threadCount)
 {
 	mInfo = MakeRef<ThreadPoolInfo>();
-
-	mWorkers.reserve(threadCount);
-
+	
 	for (uint32_t i = 0; i < threadCount; i++)
 	{
-		Create();
+		CreateImpl();
 	}
-}
 
-AQUA_NAMESPACE::ThreadWorker AQUA_NAMESPACE::ThreadPool::Create()
-{
-	mWorkers.push_back(ThreadWorker(mInfo));
-	return mWorkers.back();
+	SetDefaultExecutionPolicy();
 }
 
 void AQUA_NAMESPACE::ThreadPool::Free(uint32_t idx)
 {
-	mWorkers.erase(mWorkers.begin() + idx);
+	auto it = mWorkers.begin();
+
+	for (; idx != 0; idx--)
+	{
+		it++;
+	}
+
+	FreeImpl(it->second->mHandle.get_id());
 }
 
-void AQUA_NAMESPACE::ThreadPool::Wait(std::chrono::nanoseconds timeout) const
+std::thread::id AQUA_NAMESPACE::ThreadPool::Create()
 {
-	std::unique_lock locker(mInfo->mLock);
+	auto threadID = CreateImpl();
 
-	// TODO: latency problem :)
-	mInfo->mEmptyNotifier.wait_for(locker, timeout, [this]()
-		{
-			bool AllEmpty = mInfo->mTasks.empty();
+	std::forward_list<std::unique_lock<std::mutex>> locks;
+	FillLocks(locks, mInfo->mThreadInfos);
 
-			for (const auto& worker : mWorkers)
-				AllEmpty &= worker.IsEmpty();
+	mInfo->mThreadInfoFunctor(mInfo->mThreadInfos);
 
-			return AllEmpty;
-		});
+	return threadID;
 }
 
-void AQUA_NAMESPACE::ThreadPool::InsertTask(const std::function<void()>& task)
+bool ThreadPool::InsertTask(const ThreadFn& task)
 {
-	mInfo->mTasks.push(task);
-	mInfo->mTaskCount++;
-	mInfo->mBusyThreadCount++; // busy thread
+	if (!mInfo->mTaskManager(task))
+		return false;
+
 	mInfo->mWorkerNotifier.notify_one();
+	mInfo->mTaskCount++;
+
+	return true;
 }
 
+std::thread::id ThreadPool::CreateImpl()
+{
+	auto worker = MakeRef<ThreadWorker>(mInfo);
+
+	mWorkers[worker->mHandle.get_id()] = worker;
+	mInfo->mThreadInfos[worker->mHandle.get_id()] = &worker->mLock;
+
+	return worker->mHandle.get_id();
+}
+
+void ThreadPool::FreeImpl(std::thread::id idx)
+{
+	mWorkers.erase(idx);
+	mInfo->mThreadInfos.erase(idx);
+
+	std::forward_list<std::unique_lock<std::mutex>> locks;
+	FillLocks(locks, mInfo->mThreadInfos);
+
+	mInfo->mThreadInfoFunctor(mInfo->mThreadInfos);
+}
+
+AQUA_END

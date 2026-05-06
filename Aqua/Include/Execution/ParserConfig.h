@@ -60,7 +60,8 @@ struct FunctionNode
 	// name
 	std::string Name;
 	// parameters section
-	std::unordered_map<std::string, TypeName> Parameters;
+	// std::string parameter specific the GLSL refs (in, out and inout)
+	std::unordered_map<std::string, std::tuple<TypeName, std::string>> Parameters;
 
 	// aqua special parameters
 	std::string AquaDependencyName = ""; // only for operations

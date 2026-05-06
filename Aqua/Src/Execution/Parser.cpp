@@ -1,6 +1,29 @@
 #include "Core/Aqpch.h"
 #include "Execution/Parser.h"
 
+/*
+* Example:
+* 		SET WorkGroupSize = { 256, 1, 1 }
+		SET InvocationCount = { 1, 1, 1 }
+
+		SET KernelConsts
+		{
+			u32 pSplits;
+		};
+
+		shared_buffer<fp32> sActiveBuffer(set, binding);
+
+		function Evaluate()->void
+		{
+			u32 globalID = gl_GlobalInvocationID.x;
+
+			if (globalID >= pSplits)
+				return;
+
+			sActiveBuffer[globalID] = 0.5 * fp32(globalID);
+		}
+*/
+
 AQUA_NAMESPACE::EXEC_NAMESPACE::GLSLParser::GLSLParser(std::string_view code, uint32_t glslVersion) : Parser(code)
 {
 	mGLSLVersionString = "#version " + std::to_string(glslVersion) + "\n";
@@ -297,13 +320,33 @@ void AQUA_NAMESPACE::EXEC_NAMESPACE::GLSLParser::ParseOpParameters(Lexer& lexer,
 		}
 		else
 		{
+			// check of ref qualifiers are there
+
+			std::string qualifier{};
+
+			if (*lexer == "read_only")
+			{
+				qualifier = "in";
+				lexer++;
+			}
+			else if (*lexer == "write_only")
+			{
+				qualifier = "out";
+				lexer++;
+			}
+			else if (*lexer == "ref")
+			{
+				qualifier = "inout";
+				lexer++;
+			}
+
 			// normal parameter
 			TypeName paramType = *GetTypename(std::string(lexer++));
 			std::string paramName = std::string(lexer++);
 
 			Expect(funcNode.Parameters.find(paramName) == funcNode.Parameters.end(), "duplicate function parameter");
 
-			funcNode.Parameters[paramName] = paramType;
+			funcNode.Parameters[paramName] = { paramType, qualifier };
 		}
 		// check for comma or ending parameters
 		if (*lexer == ",")

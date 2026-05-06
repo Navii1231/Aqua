@@ -3,7 +3,7 @@
 #include "Graph.h"
 
 // for multi-threaded traversal
-#include "../Utils/ThreadPool.h"
+#include "Scheduler.h"
 
 AQUA_BEGIN
 EXEC_BEGIN
@@ -11,8 +11,8 @@ EXEC_BEGIN
 using DependencyMap = std::map<NodeID, std::vector<DependencyMetaData>>;
 
 static unsigned int GetHardwareConcurrency()
-{ 
-	auto maxThreads = std::thread::hardware_concurrency();  
+{
+	auto maxThreads = std::thread::hardware_concurrency();
 	return maxThreads == 0 ? 1 : maxThreads;
 }
 
@@ -84,6 +84,7 @@ public:
 	// construction
 	// thread safe only if constructor and connector are thread safe
 	// should be able to take any arbitrary scheduler
+	// TODO: maybe we should accept a thread pool explicitly
 	template <typename _NodeRefT, typename _NodeConFn, typename _DepConFn>
 	std::expected<Wavefront, GraphError> _ConstructEx(const Wavefront& probes, bool forward, _NodeConFn&& constructor, _DepConFn&& connector, int threadCount = 1) const;
 
@@ -148,18 +149,19 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<_NodeInfo, _DepInfo...>::_ConstructEx(cons
 		return _ConstructExSingleThreaded<_NodeRefT>(probes, forward, constructor, connector);
 
 	ThreadPool pool(threadCount);
+	pool.SetScheduler(DefaultPolicy<true>());
 
 	struct MultiThreadedScheduler
 	{
 		Aqua::Future<std::expected<bool, GraphError>> operator()(std::map<std::thread::id, Wavefront>& info, MyMultiTraversalInfo& traversalStates, NodeID nodeId, MyPaths& paths, _NodeConFn& constructor, _DepConFn& connector, MultiThreadedScheduler& scheduler)
 		{
-			auto expectedFuture = mPool->EnqueueOnlyIfFree([this, &info, &traversalStates, nodeId, &paths, &constructor, &connector, &scheduler]()
+			auto future = mPool->Enqueue([this, &info, &traversalStates, nodeId, &paths, &constructor, &connector, &scheduler]()
 				{
 					return mDraft->BuildDependencySkeleton<_NodeRefT>(info, traversalStates, nodeId, paths, constructor, connector, scheduler);
 				});
 
-			if (expectedFuture)
-				return *expectedFuture;
+			if (future.valid())
+				return future;
 
 			std::promise<typename MySingleTraversalInfo::Expected> promise;
 			promise.set_value(mDraft->BuildDependencySkeleton<_NodeRefT>(info, traversalStates, nodeId, paths, constructor, connector, scheduler));
@@ -200,10 +202,19 @@ AQUA_NAMESPACE::EXEC_NAMESPACE::Draft<_NodeInfo, _DepInfo...>::_ConstructEx(cons
 	for (size_t idx = 0; idx < results.size(); idx++)
 	{
 		const auto& future = results[idx];
-		const auto& err = future.get();
 
-		if (!err)
-			return std::unexpected(err.error());
+		try
+		{
+			const auto& err = future.get();
+			
+			if (!err)
+				return std::unexpected(err.error());
+		}
+		catch (std::exception& exp)
+		{
+			std::cout << exp.what() << std::endl;
+			_STL_ASSERT(false, "Exception");
+		}
 	}
 
 	for (const auto& [ID, node] : fronts)

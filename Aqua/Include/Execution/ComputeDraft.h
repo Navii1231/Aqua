@@ -6,10 +6,22 @@
 AQUA_BEGIN
 EXEC_BEGIN
 
+struct ComputeNodeInfo
+{
+	std::string MainKernel{};
+	std::vector<std::string> SecondaryKernels{};
+
+	ComputeNodeInfo() = default;
+	~ComputeNodeInfo() = default;
+
+	ComputeNodeInfo(const ComputeNodeInfo&) = default;
+	ComputeNodeInfo(const std::string& mainKernel) : MainKernel(mainKernel) {}
+};
+
 // mimics CUDA kernels
 // only accepts modified GLSL shaders
 // generates a network of compute pipelines with shared resources
-class ComputeDraft : public Draft<std::string, vk::PipelineStageFlags>
+class ComputeDraft : public Draft<ComputeNodeInfo, vk::PipelineStageFlags>
 {
 public:
 	ComputeDraft() = default;

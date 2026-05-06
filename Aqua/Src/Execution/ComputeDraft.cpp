@@ -12,13 +12,22 @@ std::expected<AQUA_NAMESPACE::EXEC_NAMESPACE::Graph, AQUA_NAMESPACE::EXEC_NAMESP
 	Graph graph{};
 	graph.OutputNodes = probes;
 
-	auto front = _ConstructEx<NodeRef>(probes, true, [this, &allExts, &graph](NodeID node, const std::string& kernel)->NodeRef
+	auto front = _ConstructEx<NodeRef>(probes, true, [this, &allExts, &graph](NodeID node, const ComputeNodeInfo& nodeInfo)->NodeRef
 		{
 			if (graph.Nodes.find(node) != graph.Nodes.end())
 				return graph.Nodes[node];
 
 			// this is where we shall create our compute node
-			KernelExtractions exts = GLSLParser(kernel, 440).Extract();
+			KernelExtractions exts = GLSLParser(nodeInfo.MainKernel, 440).Extract();
+
+			for (auto it = nodeInfo.SecondaryKernels.rbegin(); it != nodeInfo.SecondaryKernels.rend(); it++)
+			{
+				const auto& kernel = *it;
+
+				auto function = GLSLParser(kernel, 440).Extract();
+				exts.Functions.insert_range(exts.Functions.begin(), function.Functions);
+			}
+
 			allExts[node] = exts;
 
 			SharedRef<ComputeNode> computeNode = MakeRef<ComputeNode>(node, mCtx.MakePipelineBuilder().BuildComputePipeline<vkLib::ComputePipeline>(ConstructShader(exts)));
